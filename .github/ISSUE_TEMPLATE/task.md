@@ -1,13 +1,13 @@
 ---
 name: BYAI 开发任务
 about: 功能、硬件适配、调研、验证、修复与工程维护
-title: "[feat(scope)] "
+title: "feat(scope): "
 labels: ""
 assignees: ""
 ---
 
 <!--
-标题格式：[类型(范围)] 中文任务名
+标题格式：类型(范围): 中文任务名
 
 类型：
 feat（新能力）| hw（硬件联调）| build（构建与烧录）| config（配置流程）
@@ -17,10 +17,10 @@ perf（性能优化）| fix（缺陷修复）| refactor（结构整理）| docs�
 范围：bringup | audio | display | touch | ui | wifi | ai | storage | power | server | emulator
 
 示例：
-[feat(audio)] WM8978 音频输出
-[hw(power)] BQ25895 通信与充电控制
+feat(audio): WM8978 音频输出
+hw(power): BQ25895 通信与充电控制
 [research(storage)] 聊天记录存储方案选型
-[spike(emulator)] NDS 模拟器运行可行性验证
+spike(emulator): NDS 模拟器运行可行性验证
 [test(audio)] 输出质量与异常场景验证
 [fix(wifi)] 重连后网络配置丢失
 -->

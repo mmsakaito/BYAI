@@ -46,17 +46,17 @@
 
 - 顶层 Epic 作为 Project 卡片，反映模块状态、优先级和 Milestone。
 - 每个 Epic 下的子 Issue 管理具体实施、验证、风险和交付记录。
-- Issue 标题使用 `[类型(范围)] 中文任务名`；PR 标题使用 `类型(范围): 中文任务名`，例如 `feat(audio): WM8978 音频输出`。
+- Issue 与 PR 标题统一使用 `类型(范围): 中文任务名`，例如 `feat(audio): WM8978 音频输出`。
 - 贡献、分支、提交签名和 PR 规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 🗺️ 开发路线
 
 | 阶段 | 目标 | Epic Issue |
 | :--- | :--- | :--- |
-| 阶段 0 · 小智基础适配 | 在目标 ESP32-S3 上建立可构建、烧录、启动和联网的小智固件基线。 | [\[feat(bringup)\] 小智基础适配](https://github.com/mmsakaito/BYAI/issues/1) |
-| 第一阶段 · 基础功能 | 完成音频、屏幕与交互、官网模型服务与数据存储、电源管理。 | [\[feat(audio)\] 音频驱动](https://github.com/mmsakaito/BYAI/issues/2)<br>[\[feat(ui)\] 屏幕与交互](https://github.com/mmsakaito/BYAI/issues/3)<br>[\[feat(ai)\] AI 与数据存储](https://github.com/mmsakaito/BYAI/issues/4)<br>[\[feat(power)\] 电源管理](https://github.com/mmsakaito/BYAI/issues/5) |
-| 第二阶段 · 自建服务端 | 对接 C# 服务端，支持服务切换、模型选择、在线状态和音乐资源。 | [\[feat(server)\] 自建 C# 服务端](https://github.com/mmsakaito/BYAI/issues/6) |
-| 第三阶段 · 进阶探索 | 以可复现实验验证 Windows 95、NDS 等模拟器及虚拟触控手柄的可行性。 | [\[spike(emulator)\] 进阶探索](https://github.com/mmsakaito/BYAI/issues/7) |
+| 阶段 0 · 小智基础适配 | 在目标 ESP32-S3 上建立可构建、烧录、启动和联网的小智固件基线。 | [feat(bringup): 小智基础适配](https://github.com/mmsakaito/BYAI/issues/1) |
+| 第一阶段 · 基础功能 | 完成音频、屏幕与交互、官网模型服务与数据存储、电源管理。 | [feat(audio): 音频驱动](https://github.com/mmsakaito/BYAI/issues/2)<br>[feat(ui): 屏幕与交互](https://github.com/mmsakaito/BYAI/issues/3)<br>[feat(ai): AI 与数据存储](https://github.com/mmsakaito/BYAI/issues/4)<br>[feat(power): 电源管理](https://github.com/mmsakaito/BYAI/issues/5) |
+| 第二阶段 · 自建服务端 | 对接 C# 服务端，支持服务切换、模型选择、在线状态和音乐资源。 | [feat(server): 自建 C# 服务端](https://github.com/mmsakaito/BYAI/issues/6) |
+| 第三阶段 · 进阶探索 | 以可复现实验验证 Windows 95、NDS 等模拟器及虚拟触控手柄的可行性。 | [spike(emulator): 进阶探索](https://github.com/mmsakaito/BYAI/issues/7) |
 
 进阶探索必须记录测试环境、资源占用、运行证据和可行、部分可行或不可行的结论。
 

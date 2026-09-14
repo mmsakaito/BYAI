@@ -13,7 +13,7 @@
 标题格式：
 
 ```text
-[类型(范围)] 中文任务名
+类型(范围): 中文任务名
 ```
 
 常用类型：
@@ -31,9 +31,9 @@ repo | bringup | audio | display | touch | ui | wifi | ai | storage | power | se
 示例：
 
 ```text
-[feat(audio)] WM8978 音频输出
-[hw(power)] BQ25895 通信与充电控制
-[spike(emulator)] NDS 模拟器运行可行性验证
+feat(audio): WM8978 音频输出
+hw(power): BQ25895 通信与充电控制
+spike(emulator): NDS 模拟器运行可行性验证
 ```
 
 `research` 用于技术选型或资料调研；`spike` 用于有明确实验边界且必须产出可行、部分可行或不可行结论的探索。
