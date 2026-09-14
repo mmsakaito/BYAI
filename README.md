@@ -47,7 +47,6 @@
 - 顶层 Epic 作为 Project 卡片，反映模块状态、优先级和 Milestone。
 - 每个 Epic 下的子 Issue 管理具体实施、验证、风险和交付记录。
 - Issue 与 PR 标题统一使用 `[类型(范围)] 中文任务名`，例如 `[feat(audio)] WM8978 音频输出`。
-- 日常开发从 `dev` 创建 `feat/audio-output` 等功能分支，经 PR 合入 `dev`；`main` 只接受 PR。
 - 贡献、分支、提交签名和 PR 规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 🗺️ 开发路线
