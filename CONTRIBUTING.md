@@ -52,10 +52,46 @@ bringup | audio | display | touch | ui | wifi | ai | storage | power | server | 
 
 ## 开发与验证
 
-1. 分支名使用小写英文和连字符，例如 `feat/audio-output`、`fix/wifi-reconnect`。
-2. 修改硬件相关能力时，记录测试板、固件版本、关键配置和验证结果。
-3. 调研与实验任务需要保留步骤、数据、日志、截图或录屏，并在 Issue 中写出结论。
-4. 出现未解决的依赖或风险时，将对应 Project 卡片改为“阻塞”，说明原因和需要的外部条件。
+1. 修改硬件相关能力时，记录测试板、固件版本、关键配置和验证结果。
+2. 调研与实验任务需要保留步骤、数据、日志、截图或录屏，并在 Issue 中写出结论。
+3. 出现未解决的依赖或风险时，将对应 Project 卡片改为“阻塞”，说明原因和需要的外部条件。
+
+## 分支规范
+
+分支流向为：`功能分支 → PR → dev → PR → main`。
+
+- `main` 是稳定分支，禁止直接 `push`；只接受 Pull Request 合并。
+- `dev` 是日常集成基线。常规开发禁止直接 `push` 到 `dev`，功能分支通过 PR 合入 `dev`。
+- 只有紧急修复可以直接推送到 `dev`。此类提交必须已签名、完成必要验证，并在提交正文关联对应 Issue；随后仍需通过 PR 将 `dev` 合入 `main`。
+- 新功能、修复、调研、验证和重构都从最新 `dev` 创建独立分支，不直接在 `main` 或 `dev` 上开发。
+
+分支名使用小写英文、连字符和 Conventional Commits 类型：
+
+```text
+类型/范围-简短描述
+```
+
+示例：
+
+```text
+feat/audio-output
+hw/wm8978-clock
+config/wifi-provisioning
+fix/wifi-reconnect
+research/storage-backend
+spike/nds-emulator
+test/audio-output
+```
+
+创建分支前先同步 `dev`：
+
+```bash
+git switch dev
+git pull --ff-only origin dev
+git switch -c feat/audio-output
+```
+
+常规功能分支的 PR 目标为 `dev`；`main` 的 PR 应来自已验证的 `dev` 集成结果。
 
 ## 提交规范
 
