@@ -148,10 +148,10 @@ Refs #14
 
 ## Pull Request
 
-PR 标题沿用 Issue 格式：
+PR 标题使用 Conventional Commits 格式，不使用方括号：
 
 ```text
-[feat(audio)] WM8978 音频输出
+feat(audio): WM8978 音频输出
 ```
 
 使用 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md)，并至少完成：
