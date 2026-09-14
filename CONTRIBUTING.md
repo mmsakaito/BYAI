@@ -25,7 +25,7 @@ feat | hw | build | config | design | research | spike | test | perf | fix | ref
 范围：
 
 ```text
-bringup | audio | display | touch | ui | wifi | ai | storage | power | server | emulator
+repo | bringup | audio | display | touch | ui | wifi | ai | storage | power | server | emulator
 ```
 
 示例：
@@ -108,7 +108,7 @@ feat | hw | build | config | design | research | spike | test | perf | fix | ref
 ```
 
 ```text
-bringup | audio | display | touch | ui | wifi | ai | storage | power | server | emulator
+repo | bringup | audio | display | touch | ui | wifi | ai | storage | power | server | emulator
 ```
 
 示例：
