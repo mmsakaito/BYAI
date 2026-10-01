@@ -43,16 +43,6 @@ EIM（ESP-IDF Installation Manager）负责安装 ESP-IDF、所需工具及 Pyth
 - 固件项目的构建输出默认位于项目根目录的 `build/`，由 ESP-IDF/CMake 自动生成，不应提交到 Git。
 - 当前仓库尚无固件项目，因此具体构建目录、串口和烧录命令待固件接入后补充。
 
-### 本机路径配置（可选）
-
-如需在命令行中固定本机路径，可复制仓库根目录的 [`ENV.local.example`](../ENV.local.example) 为 `ENV.local`，再填写同一套 EIM 安装产生的三个实际路径：
-
-- `ESP_IDF_PATH`：包含 `tools/idf.py` 的 ESP-IDF 根目录。
-- `IDF_TOOLS_PATH`：EIM 工具目录，通常也包含版本激活脚本。
-- `IDF_PYTHON_ENV_PATH`：该 EIM 安装提供的 Python 环境目录。
-
-`ENV.local` 已加入 `.gitignore`，只保留在本机。Linux/macOS/WSL 可在仓库根目录运行 `set -a; . ./ENV.local; set +a` 导入变量；路径更新后先确认目录和激活脚本确实存在。
-
 
 ## 3. 在 VS Code 中配置 ESP-IDF
 
