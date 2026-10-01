@@ -19,10 +19,10 @@ perf（性能优化）| fix（缺陷修复）| refactor（结构整理）| docs�
 示例：
 feat(audio): WM8978 音频输出
 hw(power): BQ25895 通信与充电控制
-[research(storage)] 聊天记录存储方案选型
+research(storage): 聊天记录存储方案选型
 spike(emulator): NDS 模拟器运行可行性验证
-[test(audio)] 输出质量与异常场景验证
-[fix(wifi)] 重连后网络配置丢失
+test(audio): 输出质量与异常场景验证
+fix(wifi): 重连后网络配置丢失
 -->
 
 ## 目标
