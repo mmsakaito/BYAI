@@ -1,2 +1,5 @@
 # Local Visual Studio Code workspace settings
 .vscode/
+
+# Per-machine ESP-IDF environment paths
+ENV.local

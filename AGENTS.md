@@ -17,6 +17,13 @@
 - 如果 VS Code 未发现安装，检查 EIM 的 `eim_idf.json` 路径；默认位置为 Windows 的 `C:\Espressif\tools\eim_idf.json` 或 Linux/macOS 的 `$HOME/.espressif/tools/eim_idf.json`。
 - `config.toml` 中的 `python_version_override = "python313"` 是安装偏好，不代表所有系统都已完成验证；实际安装后应记录 EIM、ESP-IDF、Python 和扩展版本。
 
+### 本机环境配置
+
+- 复制 [`ENV.local.example`](ENV.local.example) 为 `ENV.local`，填写本机实际的 `ESP_IDF_PATH`、`IDF_TOOLS_PATH` 和 `IDF_PYTHON_ENV_PATH`；`ENV.local` 已忽略，不提交到 Git。
+- 三个路径必须来自同一套 ESP-IDF/EIM 安装：`ESP_IDF_PATH` 包含 `tools/idf.py`，`IDF_TOOLS_PATH` 包含 EIM 工具和激活脚本，`IDF_PYTHON_ENV_PATH` 指向该安装提供的 Python 环境。
+- EIM 或 ESP-IDF 更新后重新核对这三个路径，不要填写尚不存在的预期路径，也不要混用系统 Python、Conda Python 或其他 SDK 的路径。
+- Linux/macOS/WSL 可在仓库根目录运行 `set -a; . ./ENV.local; set +a` 导入变量，然后使用 `IDF_TOOLS_PATH` 下对应版本的 EIM 激活脚本；Windows 应按 EIM 生成的 PowerShell 激活脚本在当前会话中加载。
+
 ### 路径约定
 
 - ESP-IDF 根目录（`IDF_PATH`）必须指向包含 `tools/idf.py` 的目录；不要只指向工具目录或项目目录。
@@ -43,7 +50,7 @@
 
 - 仓库级说明放在 `README.md`，协作规则放在 `CONTRIBUTING.md`，需求和路线文档放在 `docs/`。
 - 固件接入后，按板级配置、驱动、应用、测试和资源划分清晰的顶层目录，并同步更新 README。
-- 构建产物、下载依赖、工具缓存和本机 IDE 设置不提交；`.vscode/` 已由 `.gitignore` 忽略。
+- 构建产物、下载依赖、工具缓存和本机 IDE/环境设置不提交；`.vscode/` 和 `ENV.local` 已由 `.gitignore` 忽略。
 
 ## 编码与文档规范
 
