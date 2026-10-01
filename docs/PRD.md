@@ -21,6 +21,94 @@ BYAI 的长期目标是一个带触摸屏的 AI 语音交互终端：用户可�
 
 完整芯片清单见 [README 的硬件配置](../README.md)。首版固定现有芯片和主板；如果发现必须新增硬件或改板，先记录原因，再重新讨论范围。
 
+### 架构总览：硬件、软件和开发工作分别在哪里
+
+下图按开发职责划分目标架构，首版软件均待适配与验证。设备固件整体运行在 ESP32-S3 上；分组不代表独立进程或线程，连线表示逻辑接口或交付关系，不是原理图接线，也不是开发先后顺序。图中只画域间主要关系：实线对应首版接口与交付，虚线对应后续扩展；硬件节点内另行标注待核对条件。
+
+```mermaid
+flowchart TB
+    subgraph Engineering["工程交付域 · 开发电脑与验证工作"]
+        direction LR
+        Build["固件与工具链<br/>构建 / 烧录"]
+        Verify["整机联合验收<br/>另一位成员复现"]
+    end
+
+    subgraph Device["目标设备 · 现有 ESP32-S3 主板与外设"]
+        subgraph Firmware["设备端固件 · 基于小智官方固件适配，整体运行于 ESP32-S3"]
+            UI["交互域 · LVGL<br/>自检 / 录放操作<br/>状态与错误提示"]
+
+            subgraph Features["设备功能与状态域 · 首版"]
+                direction LR
+                Audio["本地播放与录放<br/>临时缓冲 / 先录后放"]
+                Network["Wi-Fi 连接 / 恢复<br/>开发配置"]
+                PowerState["基础电源状态<br/>有效性 / 失败反馈"]
+                Diagnostics["设备状态汇总<br/>诊断日志"]
+            end
+
+            subgraph Drivers["板级与驱动适配域 · 首版"]
+                direction LR
+                Board["板级启动与配置<br/>引脚 / 内存 / 网络"]
+                AudioDriver["音频驱动<br/>采集 / 播放 / 控制"]
+                DisplayDriver["显示与触控驱动"]
+                PowerDriver["BQ25895 通信<br/>基础状态读取"]
+            end
+
+            LaterDevice["后续设备功能<br/>AI / 记录 / 电源等<br/>不纳入首版"]
+        end
+
+        subgraph Hardware["硬件域 · 核对现有电路与接口"]
+            direction LR
+            MainBoard["ESP32-S3 / 存储<br/>板型、容量待核对"]
+            AudioHardware["WM8978 / 音频电路<br/>麦克风条件待核对"]
+            Screen["触摸屏<br/>控制器与连接待核对"]
+            PowerHardware["BQ25895 / 供电<br/>供电条件待核对"]
+        end
+    end
+
+    LaterServices["后续外部服务域<br/>小智官方 / 自建 C#<br/>不纳入首版"]
+
+    Build -->|"构建与部署完整固件"| Firmware
+    Verify ---|"验证目标板与交付版本"| Device
+    UI <-->|"操作 / 状态"| Features
+    UI <-->|"显示 / 触控"| Drivers
+    Features <-->|"调用驱动 / 获取数据"| Drivers
+    Drivers <-->|"板级配置 / 设备访问"| Hardware
+    LaterDevice -.->|"后续复用首版能力"| Features
+    LaterDevice -.->|"后续通过网络接入"| LaterServices
+
+    classDef hardware fill:#fff7ed,stroke:#c2410c,color:#431407
+    classDef driver fill:#eff6ff,stroke:#2563eb,color:#172554
+    classDef feature fill:#f0fdf4,stroke:#15803d,color:#14532d
+    classDef interface fill:#faf5ff,stroke:#9333ea,color:#3b0764
+    classDef engineering fill:#f8fafc,stroke:#475569,color:#0f172a
+    classDef later fill:#f8fafc,stroke:#64748b,color:#334155,stroke-dasharray:5 5
+    class MainBoard,AudioHardware,Screen,PowerHardware hardware
+    class Board,AudioDriver,DisplayDriver,PowerDriver driver
+    class Audio,Network,PowerState,Diagnostics feature
+    class UI interface
+    class Build,Verify engineering
+    class LaterDevice,LaterServices later
+    style Device fill:#ffffff,stroke:#64748b
+    style Firmware fill:#fafafa,stroke:#64748b
+    style Hardware fill:#fffaf5,stroke:#c2410c
+    style Drivers fill:#f5f9ff,stroke:#2563eb
+    style Features fill:#f6fff8,stroke:#15803d
+    style Engineering fill:#f8fafc,stroke:#475569
+```
+
+可以按下面的分工找到自己的开发入口；具体先后顺序见第四节。
+
+| 开发域 | 需要负责什么 | 从哪里开始 |
+| --- | --- | --- |
+| 硬件核对 | 确认实际板卡、引脚、音频输入输出、屏幕和供电条件，记录未确认项。 | [板卡资料](https://github.com/mmsakaito/BYAI/issues/9)、[音频路径](https://github.com/mmsakaito/BYAI/issues/12)、[麦克风条件](https://github.com/mmsakaito/BYAI/issues/39) |
+| 板级与驱动 | 让程序在目标板启动，提供可复用的采集、播放、显示触控和电源通信接口。 | [板级启动](https://github.com/mmsakaito/BYAI/issues/9)、[音频控制](https://github.com/mmsakaito/BYAI/issues/13)、[显示触控](https://github.com/mmsakaito/BYAI/issues/16)、[电源通信](https://github.com/mmsakaito/BYAI/issues/24) |
+| 设备功能与状态 | 组合驱动能力，实现录放、联网恢复、基础电源状态及失败反馈。 | [网络验证](https://github.com/mmsakaito/BYAI/issues/10)、[输入采集](https://github.com/mmsakaito/BYAI/issues/40)、[录放联调](https://github.com/mmsakaito/BYAI/issues/41)、[基础电源状态](https://github.com/mmsakaito/BYAI/issues/27) |
+| 交互界面 | 提供自检与录放操作入口，展示真实状态，让用户知道正在做什么或哪里失败。 | [LVGL 自检界面](https://github.com/mmsakaito/BYAI/issues/17) |
+| 工程交付与验证 | 固定版本和构建环境，整理烧录与诊断说明，验证整机并完成他人复现。 | [构建基线](https://github.com/mmsakaito/BYAI/issues/8)、[整机验收](https://github.com/mmsakaito/BYAI/issues/42)、[他人复现](https://github.com/mmsakaito/BYAI/issues/43) |
+| 后续设备与服务扩展 | 首版基础具备后再明确 AI、记录、完整电源、自建服务及其他应用的具体方案。 | [后续路线](#6-首版之后做什么) |
+
+图中“基础电源状态”只包含实际可读的状态，不包含电量估算或完整充电控制。录音使用临时缓冲，不引入聊天记录存储；后续服务节点也不表示首版需要联网建立 AI 会话。
+
 ## 2. 目前做到哪里了
 
 目前仓库已经有项目说明、贡献规范、这份 PRD，以及 GitHub 上拆分好的开发任务。**仓库尚未提交固件、构建系统或自动化测试，也没有可据此确认硬件已通过验收的交付记录。** 文中的功能与测试指标都是接下来的目标。
