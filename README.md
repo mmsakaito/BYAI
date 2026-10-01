@@ -30,6 +30,8 @@
 
 开发环境的初始安装流程见 [开发环境搭建](docs/development-environment.md)。
 
+需要在命令行固定本机 ESP-IDF 路径时，可参考 [`ENV.local.example`](ENV.local.example) 创建本机的 `ENV.local`；该文件不会提交到仓库。
+
 **先把基础做扎实，再把想象力装进去。**
 
 > [!NOTE]
