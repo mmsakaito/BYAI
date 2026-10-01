@@ -10,6 +10,7 @@
 2. 打开扩展视图（Windows / Linux：`Ctrl+Shift+X`；macOS：`⌘+Shift+X`），搜索并安装 Espressif 官方扩展 ESP-IDF。
 
     >如图所示，安装第一个插件即可
+    >
     >![ESP-IDF插件安装](./res/ESPIDF_INSTALL.png)
 
 ## 2. 使用 EIM 安装 ESP-IDF

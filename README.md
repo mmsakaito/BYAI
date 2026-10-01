@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🤖 BYAI 小智
+<img src="LOGO.png" alt="BYAI 小智" width="180">
+
+# BYAI 小智
 
 **基于 ESP32-S3 的 AI 语音交互终端 · 首版硬件适配样机**
 
@@ -11,6 +13,8 @@
 ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-E7352C?style=for-the-badge&logo=espressif&logoColor=white)
 ![UI](https://img.shields.io/badge/UI-LVGL-00979D?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-规划与探索-FFB300?style=for-the-badge)
+
+### [📖 开发环境安装说明](docs/development-environment.md)
 
 </div>
 
