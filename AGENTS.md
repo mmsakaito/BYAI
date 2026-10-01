@@ -4,18 +4,12 @@
 
 - BYAI 是基于 ESP32-S3 的 AI 语音交互终端项目。
 - 当前仓库仍是文档与规划基线，固件源码、构建系统、自动化测试和硬件资源尚未提交。
-- 项目目标、首版范围和验收边界见 [`README.md`](README.md) 与 [`docs/PRD.md`](docs/PRD.md)。
-- 开发环境安装步骤见 [`docs/development-environment.md`](docs/development-environment.md)，可复用的 EIM 配置见 [`config.toml`](config.toml)。
+- 面向成员的开发环境安装入口见 [`docs/development-environment.md`](docs/development-environment.md)。
 - 使用 ESP-IDF 官方文档时，优先参考乐鑫文档；需要检索官方资料时可使用 ESP 文档 MCP。
 
 ## 开发环境
 
-- 当前统一配置为 ESP32-S3、ESP-IDF `v6.1`，通过 EIM 导入 `config.toml` 安装。
-- 配置文件不固定本机安装路径；在其他电脑导入前，确认目标系统、镜像可达性和 EIM 依赖检查结果。
-- 同一次构建必须使用同一套 ESP-IDF、工具目录和 Python 环境。不要把系统 Python、Conda Python 或另一套 ESP-IDF 工具混入当前环境。
-- EIM 安装完成后，在 VS Code 中运行 `ESP-IDF: Select Current ESP-IDF Version` 选择版本，再运行 `ESP-IDF: Doctor Command` 检查环境。
-- 如果 VS Code 未发现安装，检查 EIM 的 `eim_idf.json` 路径；默认位置为 Windows 的 `C:\Espressif\tools\eim_idf.json` 或 Linux/macOS 的 `$HOME/.espressif/tools/eim_idf.json`。
-- `config.toml` 中的 `python_version_override = "python313"` 是安装偏好，不代表所有系统都已完成验证；实际安装后应记录 EIM、ESP-IDF、Python 和扩展版本。
+- 成员按 [`docs/development-environment.md`](docs/development-environment.md) 安装；AI 执行构建或检查时使用下方的本机环境配置和平台命令。
 
 ### 本机环境配置
 
@@ -45,6 +39,25 @@
 - ESP-IDF 接入后，必须在 README 和对应 Issue 中记录准确的配置、构建、烧录、监视和测试命令，并注明测试板、固件版本、关键配置、日志和结果。
 - 构建验证、静态检查或示例工程构建不能替代目标板验证；音频、显示、触控、Wi-Fi、电源和服务功能都要记录实际设备证据。
 - 调研或实验任务保留可复现步骤、输入、日志和结论，并明确可行、部分可行或不可行。
+
+固件接入后约定应用根目录为 `firmware/`；当前仓库尚未创建该目录，以下命令保留为接入 ESP-IDF 后的标准操作。
+
+### Unix-like systems (Linux/macOS/WSL)
+
+- Activate (EIM): 在仓库根目录运行 `set -a; . ./ENV.local; set +a`，然后 source `"$IDF_TOOLS_PATH/activate_idf_<version>.sh"`；Fish 使用 `source "$IDF_TOOLS_PATH/activate_idf_<version>.fish"`。Linux 和 macOS 的 EIM 命名规范相同，不要改用 Windows 的 PowerShell profile 脚本。
+- Activate (传统安装): 如果不是 EIM 安装，Unix-like 系统才使用 `. "$ESP_IDF_PATH/export.sh"`。不要直接执行激活脚本；必须使用 `source`/`.` 使环境变量留在当前 shell。
+- Build: 进入 `firmware/`，运行 `IDF_PYTHON="$IDF_PYTHON_ENV_PATH/bin/python"`，然后 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" build`。
+- Clean: Python 路径不一致时运行 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" fullclean` 后再构建。
+- Target / flash: `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" set-target esp32s3`；使用 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -p PORT flash monitor` 烧录并监视。
+
+### Windows
+
+- Activate (EIM, PowerShell): 从 `ENV.local` 读取并设置路径，使用 `IDF_TOOLS_PATH\Microsoft.<version>.PowerShell_profile.ps1`；例如 ESP-IDF 6.1 使用 `Microsoft.v6.1.PowerShell_profile.ps1`。必须在当前 PowerShell 中 dot-source：`. "$env:IDF_TOOLS_PATH\Microsoft.v6.1.PowerShell_profile.ps1"`。
+- Activate (EIM, CMD): EIM 只有在配置 `create_bat_activation_script = true` 时才生成 Windows `.bat` 激活脚本；存在时使用 `call` 调用。没有该文件时使用 PowerShell，不要假设 EIM 一定提供 CMD 脚本。
+- Activate (传统安装): 非 EIM 安装的 PowerShell/CMD 才使用 SDK 根目录下的 `export.ps1`/`export.bat`。
+- Build (PowerShell): 进入 `firmware/`，运行 `$IDF_PYTHON = Join-Path $env:IDF_PYTHON_ENV_PATH "python.exe"`，然后 `& $IDF_PYTHON "$env:IDF_PATH/tools/idf.py" build`。
+- Build (CMD): 进入 `firmware\`，运行 `set "IDF_PYTHON=%IDF_PYTHON_ENV_PATH%\python.exe"`，然后 `"%IDF_PYTHON%" "%IDF_PATH%\tools\idf.py" build`。
+- Clean / target / flash: 使用当前 shell 中对应的 `IDF_PYTHON`，分别运行 `fullclean`、`set-target esp32s3` 或 `-p PORT flash monitor`。
 
 ## 项目结构
 
