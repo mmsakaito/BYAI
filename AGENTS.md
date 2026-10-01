@@ -1,52 +1,33 @@
-# BYAI Repository Guide
+# BYAI Agent Guide
 
-## 项目概况
+## Overview
 
 - BYAI 是基于 ESP32-S3 的 AI 语音交互终端项目。
 - 当前仓库仍是文档与规划基线，固件源码、构建系统、自动化测试和硬件资源尚未提交。
-- 面向成员的开发环境安装入口见 [`docs/development-environment.md`](docs/development-environment.md)。
-- 使用 ESP-IDF 官方文档时，优先参考乐鑫文档；需要检索官方资料时可使用 ESP 文档 MCP。
+- 面向成员的开发环境安装入口见 [`docs/development-environment.md`](docs/development-environment.md)；项目说明和协作规则分别见 [`README.md`](README.md) 与 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+- ESP 文档 MCP 用于检索乐鑫官方技术文档；配置和使用说明见 <https://mcp.espressif.com/docs>。
 
-## 开发环境
+## Bootstrap
 
-- 成员按 [`docs/development-environment.md`](docs/development-environment.md) 安装；AI 执行构建或检查时使用下方的本机环境配置和平台命令。
+- 仅当本机尚未配置 ESP-IDF 开发环境时，使用 [`config.toml`](config.toml) 通过 [ESP-IDF Installation Manager](https://docs.espressif.com/projects/idf-im-ui/en/latest/) 导入安装；当前配置目标为 ESP32-S3 与 ESP-IDF `v6.1`。
+- 配置文件不固定本机安装路径；在其他电脑导入前，确认目标系统、镜像可达性和 EIM 依赖检查结果。
 
-### 本机环境配置
+## Local environment configuration
 
-- 复制 [`ENV.local.example`](ENV.local.example) 为 `ENV.local`，填写本机实际的 `ESP_IDF_PATH`、`IDF_TOOLS_PATH` 和 `IDF_PYTHON_ENV_PATH`；`ENV.local` 已忽略，不提交到 Git。
-- 三个路径必须来自同一套 ESP-IDF/EIM 安装：`ESP_IDF_PATH` 包含 `tools/idf.py`，`IDF_TOOLS_PATH` 包含 EIM 工具和激活脚本，`IDF_PYTHON_ENV_PATH` 指向该安装提供的 Python 环境。
-- EIM 或 ESP-IDF 更新后重新核对这三个路径，不要填写尚不存在的预期路径，也不要混用系统 Python、Conda Python 或其他 SDK 的路径。
-- Linux/macOS/WSL 可在仓库根目录运行 `set -a; . ./ENV.local; set +a` 导入变量，然后使用 `IDF_TOOLS_PATH` 下对应版本的 EIM 激活脚本；Windows 应按 EIM 生成的 PowerShell 激活脚本在当前会话中加载。
+- `ENV.local` 是每台开发机独立维护的本地配置，不由构建过程自动生成，也不提交到 Git；首次创建或 SDK/EIM 安装变更后，应根据本机实际安装结果填写并核对，不要填写尚未存在的预期路径。
+- 复制 [`ENV.local.example`](ENV.local.example) 为 `ENV.local`，维护 `ESP_IDF_PATH`、`IDF_TOOLS_PATH` 和 `IDF_PYTHON_ENV_PATH` 三个路径；三者必须来自同一套 ESP-IDF/EIM 安装。
+- `ESP_IDF_PATH` 必须指向包含 `tools/idf.py` 的 SDK 根目录；激活脚本的位置和命名取决于安装方式。EIM 安装使用 `IDF_TOOLS_PATH` 下按平台生成的脚本，传统安装才使用 SDK 根目录下的 `export.*` 脚本。
+- `IDF_TOOLS_PATH` 必须指向该 SDK/EIM 安装实际使用的工具目录；`IDF_PYTHON_ENV_PATH` 必须指向同一安装提供的 Python 环境，Unix-like 系统应存在 `bin/python`，Windows 应存在 `python.exe`。
+- 更新 SDK、EIM 安装或 Python 环境后，重新核对并成组更新这三个路径，再按当前 shell 的平台命令激活；激活失败时先检查路径和脚本存在性，不要混用系统 Python、Conda Python 或其他 ESP-IDF 环境。
+- 维护 `ENV.local` 时保留已有本机条目，只新增或更新必要键；使用 `KEY="VALUE"`、正斜杠和注释，不写命令替换、函数、路径追加或其他可执行语句。
 
-### 路径约定
-
-- ESP-IDF 根目录（`IDF_PATH`）必须指向包含 `tools/idf.py` 的目录；不要只指向工具目录或项目目录。
-- EIM 工具目录（`IDF_TOOLS_PATH`）和 Python 环境目录（`IDF_PYTHON_ENV_PATH`）必须来自同一套 EIM 安装，并通过激活脚本产生或确认，不要手工拼接另一套路径。
-- EIM 的默认安装根目录为 Windows 的 `C:\\Espressif`，Linux/macOS 的 `$HOME/.espressif`；实际路径以 EIM 安装结果为准。
-- 固件项目的构建输出默认放在项目根目录的 `build/`，由 ESP-IDF/CMake 生成；该目录属于构建产物，不提交到 Git。
-- 烧录和监视使用当前项目选择的串口 `PORT`；在固件接入后，README 必须补充目标板、串口、构建目录和完整命令。
-
-## 构建、烧录与测试
-
-- 当前仓库没有 `CMakeLists.txt`、固件源码或测试套件，因此不能声称 BYAI 已完成构建或硬件验证。
-- 文档变更至少运行：
-
-  ```bash
-  git diff --check
-  git status -sb
-  ```
-
-- ESP-IDF 接入后，必须在 README 和对应 Issue 中记录准确的配置、构建、烧录、监视和测试命令，并注明测试板、固件版本、关键配置、日志和结果。
-- 构建验证、静态检查或示例工程构建不能替代目标板验证；音频、显示、触控、Wi-Fi、电源和服务功能都要记录实际设备证据。
-- 调研或实验任务保留可复现步骤、输入、日志和结论，并明确可行、部分可行或不可行。
-
-固件接入后约定应用根目录为 `firmware/`；当前仓库尚未创建该目录，以下命令保留为接入 ESP-IDF 后的标准操作。
+## Commands
 
 ### Unix-like systems (Linux/macOS/WSL)
 
 - Activate (EIM): 在仓库根目录运行 `set -a; . ./ENV.local; set +a`，然后 source `"$IDF_TOOLS_PATH/activate_idf_<version>.sh"`；Fish 使用 `source "$IDF_TOOLS_PATH/activate_idf_<version>.fish"`。Linux 和 macOS 的 EIM 命名规范相同，不要改用 Windows 的 PowerShell profile 脚本。
 - Activate (传统安装): 如果不是 EIM 安装，Unix-like 系统才使用 `. "$ESP_IDF_PATH/export.sh"`。不要直接执行激活脚本；必须使用 `source`/`.` 使环境变量留在当前 shell。
-- Build: 进入 `firmware/`，运行 `IDF_PYTHON="$IDF_PYTHON_ENV_PATH/bin/python"`，然后 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" build`。
+- Build: 固件接入后进入约定的 `firmware/` 应用根目录，运行 `IDF_PYTHON="$IDF_PYTHON_ENV_PATH/bin/python"`，然后 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" build`。
 - Clean: Python 路径不一致时运行 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" fullclean` 后再构建。
 - Target / flash: `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" set-target esp32s3`；使用 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -p PORT flash monitor` 烧录并监视。
 
@@ -55,47 +36,44 @@
 - Activate (EIM, PowerShell): 从 `ENV.local` 读取并设置路径，使用 `IDF_TOOLS_PATH\Microsoft.<version>.PowerShell_profile.ps1`；例如 ESP-IDF 6.1 使用 `Microsoft.v6.1.PowerShell_profile.ps1`。必须在当前 PowerShell 中 dot-source：`. "$env:IDF_TOOLS_PATH\Microsoft.v6.1.PowerShell_profile.ps1"`。
 - Activate (EIM, CMD): EIM 只有在配置 `create_bat_activation_script = true` 时才生成 Windows `.bat` 激活脚本；存在时使用 `call` 调用。没有该文件时使用 PowerShell，不要假设 EIM 一定提供 CMD 脚本。
 - Activate (传统安装): 非 EIM 安装的 PowerShell/CMD 才使用 SDK 根目录下的 `export.ps1`/`export.bat`。
-- Build (PowerShell): 进入 `firmware/`，运行 `$IDF_PYTHON = Join-Path $env:IDF_PYTHON_ENV_PATH "python.exe"`，然后 `& $IDF_PYTHON "$env:IDF_PATH/tools/idf.py" build`。
-- Build (CMD): 进入 `firmware\`，运行 `set "IDF_PYTHON=%IDF_PYTHON_ENV_PATH%\python.exe"`，然后 `"%IDF_PYTHON%" "%IDF_PATH%\tools\idf.py" build`。
+- Build (PowerShell): 固件接入后进入 `firmware/`，运行 `$IDF_PYTHON = Join-Path $env:IDF_PYTHON_ENV_PATH "python.exe"`，然后 `& $IDF_PYTHON "$env:IDF_PATH/tools/idf.py" build`。
+- Build (CMD): 固件接入后进入 `firmware\`，运行 `set "IDF_PYTHON=%IDF_PYTHON_ENV_PATH%\python.exe"`，然后 `"%IDF_PYTHON%" "%IDF_PATH%\tools\idf.py" build`。
 - Clean / target / flash: 使用当前 shell 中对应的 `IDF_PYTHON`，分别运行 `fullclean`、`set-target esp32s3` 或 `-p PORT flash monitor`。
 
-## 项目结构
-
-- 仓库级说明放在 `README.md`，协作规则放在 `CONTRIBUTING.md`，需求和路线文档放在 `docs/`。
-- 固件接入后，按板级配置、驱动、应用、测试和资源划分清晰的顶层目录，并同步更新 README。
-- 构建产物、下载依赖、工具缓存和本机 IDE/环境设置不提交；`.vscode/` 和 `ENV.local` 已由 `.gitignore` 忽略。
-
-## 编码与文档规范
+## Code Style
 
 - Markdown 使用 UTF-8、描述性标题和面向任务的短列表，沿用被编辑文件的现有风格。
+- 固件接入后，C/C++ 遵循 ESP-IDF 风格，使用四空格缩进、`snake_case`、`CONFIG_*`、`static const char *TAG` 与 `ESP_LOG*`；公开接口保持精简，初始化和 I/O 优先返回 `esp_err_t`。
+- 文件：嵌入式代码按板级配置、驱动、应用、测试和资源划分清晰的顶层目录；板级引脚定义集中管理，只格式化本次修改的文件。
+- 注释：公开接口、模块入口、复杂内部函数使用 Doxygen 风格注释，说明参数、返回值、并发/锁、资源所有权、错误回退、持久化和硬件假设，不逐行复述代码。
 - 固件语言和构建工具确定前，不新增格式化或 lint 规则。
-- C/C++ 固件接入后遵循 ESP-IDF 风格；公开接口、硬件假设、资源所有权、错误处理和并发边界应写清设计意图。
-- 文档中的版本、路径、命令和硬件结论必须来自实际检查或官方资料；不要把个人机器路径写成团队默认路径。
 
-## Git、提交与 Pull Request
+## Pull Requests
 
-- 常规工作流为：`功能分支 → PR → dev → PR → main`。新工作从最新 `dev` 创建独立分支。
-- 分支名使用小写 Conventional Commit 类型和连字符，例如 `docs/development-environment`、`fix/wifi-reconnect`。
+- 创建或更新 PR 前，读取 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md)，并以实际 diff、提交记录和验证结果填写；标题应能直接作为合并提交标题，正文保留变更动机、影响和实际验证。
+- 功能分支保留便于开发和审查的原子提交；不得为了 Squash 对已共享分支执行 `rebase`、`reset` 或强推。批准并完成适用的人工核验后，由维护者在 GitHub 使用 **Squash and merge**。
+- 常规工作流为：`功能分支 → PR → dev → PR → main`。功能分支 PR 默认合入 `dev`；经过验证的 `dev` 再通过 PR 合入 `main`，`main` 不直接推送。
 - 提交使用签名 Conventional Commit，例如 `docs(repo): 补充仓库说明`；提交前运行 `git diff --cached --check` 和 `git diff --cached`。
-- 功能分支 PR 默认合入 `dev`；经过验证的 `dev` 再通过 PR 合入 `main`。`main` 不直接推送。
-- PR 使用 `.github/PULL_REQUEST_TEMPLATE.md`，说明变更、关联 Issue、验证、影响和证据。标题应能直接作为合并提交标题。
-- 合并后同步本地分支前，先运行 `git fetch --prune origin`，再用 `git branch -vv` 和远端日志确认状态。
+- 开 PR 后，在交付消息中提醒用户该 PR 应使用 **Squash and merge**；Code Review 后说明审查结论、已处理或仍未处理的意见。
 
-## 边界
+## Boundaries
 
-### 始终执行
+### Always
 
-- 开始前检查当前分支、`git status`、目标文件和相关 Issue；发现同一文件有并行修改时先说明。
-- 提交前确认暂存范围，只包含本次任务相关文件；保留用户已有改动。
+- 开始前检查当前分支、`git status` 和目标文件；发现同一模块并行修改时先报告并协调。
+- `ENV.local` 仅记录本机非敏感路径，且必须符合“Local environment configuration”中的生成、校验和维护规则。
+- 提交前运行 `git diff --cached --check` 和 `git diff --cached`；提交使用 `git commit -S`。分支、Issue、PR、审查和合并规则以 [`CONTRIBUTING.md`](CONTRIBUTING.md) 及 [Issue](.github/ISSUE_TEMPLATE/) / [PR](.github/PULL_REQUEST_TEMPLATE.md) 模板为准。
 - 对硬件变更记录开发板、固件版本、配置、命令、日志和实际结果。
 
-### 需要先确认
+### Ask First
 
-- 擦除 NVS、擦除 Flash、烧录设备、运行可能改变设备数据的完整硬件测试、推送远端、创建或合并 PR，以及重写远端历史。
-- 修改已有硬件引脚、电源、网络凭据或持久化数据前，先读取现有文档和实现，说明影响范围。
+- 擦除 NVS、擦除 Flash、运行完整硬件测试、烧录、提交、推送、创建 PR、强推或重写远端历史。
+- 修改已有硬件引脚、电源、网络凭据或持久化数据前，先读取现有文档和实现，说明影响范围并取得明确授权。
+- 完整硬件操作前确认工程配置、开发板、串口和测试数据安全；构建或静态检查不能替代实板验证。
 
-### 不要执行
+### Never
 
-- 不要提交他人的本机路径、凭据、密钥或未验证的硬件结论。
-- 不要混用不同 ESP-IDF、工具链和 Python 环境，也不要把构建产物或工具缓存提交到仓库。
-- 不要覆盖、回退或删除用户未授权的修改；不要直接向 `main` 提交或推送。
+- 提交、复制他人路径或凭据、密钥或未验证的硬件结论；构建产物、下载依赖和工具缓存也不得提交。
+- 混用系统 Python、Conda Python、裸 CMake 或其他 ESP-IDF 环境到同一 `build/`；无法确认 SDK 路径时停止并报告。
+- 执行 `erase-flash`，覆盖、回退或混入他人的修改，或删除、放宽上传/下载/删除测试断言。
+- 直接向 `main` 提交或推送。
