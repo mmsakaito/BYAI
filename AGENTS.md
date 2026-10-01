@@ -17,6 +17,14 @@
 - 如果 VS Code 未发现安装，检查 EIM 的 `eim_idf.json` 路径；默认位置为 Windows 的 `C:\Espressif\tools\eim_idf.json` 或 Linux/macOS 的 `$HOME/.espressif/tools/eim_idf.json`。
 - `config.toml` 中的 `python_version_override = "python313"` 是安装偏好，不代表所有系统都已完成验证；实际安装后应记录 EIM、ESP-IDF、Python 和扩展版本。
 
+### 路径约定
+
+- ESP-IDF 根目录（`IDF_PATH`）必须指向包含 `tools/idf.py` 的目录；不要只指向工具目录或项目目录。
+- EIM 工具目录（`IDF_TOOLS_PATH`）和 Python 环境目录（`IDF_PYTHON_ENV_PATH`）必须来自同一套 EIM 安装，并通过激活脚本产生或确认，不要手工拼接另一套路径。
+- EIM 的默认安装根目录为 Windows 的 `C:\\Espressif`，Linux/macOS 的 `$HOME/.espressif`；实际路径以 EIM 安装结果为准。
+- 固件项目的构建输出默认放在项目根目录的 `build/`，由 ESP-IDF/CMake 生成；该目录属于构建产物，不提交到 Git。
+- 烧录和监视使用当前项目选择的串口 `PORT`；在固件接入后，README 必须补充目标板、串口、构建目录和完整命令。
+
 ## 构建、烧录与测试
 
 - 当前仓库没有 `CMakeLists.txt`、固件源码或测试套件，因此不能声称 BYAI 已完成构建或硬件验证。

@@ -35,6 +35,14 @@ EIM（ESP-IDF Installation Manager）负责安装 ESP-IDF、所需工具及 Pyth
 - 工具选择：勾选 `cmake`。
 - 安装路径：保持默认。
 
+### 路径说明
+
+- ESP-IDF 根目录（`IDF_PATH`）应指向包含 `tools/idf.py` 的目录。
+- 工具目录（`IDF_TOOLS_PATH`）和 Python 环境目录（`IDF_PYTHON_ENV_PATH`）应来自同一套 EIM 安装。
+- EIM 默认安装根目录为 Windows 的 `C:\\Espressif`，Linux/macOS 的 `$HOME/.espressif`；实际路径以 EIM 安装结果为准。
+- 固件项目的构建输出默认位于项目根目录的 `build/`，由 ESP-IDF/CMake 自动生成，不应提交到 Git。
+- 当前仓库尚无固件项目，因此具体构建目录、串口和烧录命令待固件接入后补充。
+
 
 ## 3. 在 VS Code 中配置 ESP-IDF
 
