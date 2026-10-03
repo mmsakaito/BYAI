@@ -30,10 +30,12 @@
 
 开发环境的初始安装流程见 [开发环境搭建](docs/development-environment.md)。
 
+**VS Code 打开方式：** 使用“文件 → 打开文件夹”直接打开 [`firmware/`](firmware/)，使该子目录成为工作区根目录。首次打开后，在命令面板运行 `ESP-IDF: Select Current ESP-IDF Version`，选择本机安装的 `v6.1`，再运行 `ESP-IDF: Doctor Command` 检查配置。ESP-IDF 扩展需要识别子目录中的 `CMakeLists.txt`；只打开 BYAI 仓库根目录时，无法将该例程作为当前 ESP-IDF 工程使用。
+
 **先把基础做扎实，再把想象力装进去。**
 
 > [!NOTE]
-> 当前仓库尚未提交固件、构建系统或自动测试，上述能力均为待实现、待验证的目标。PRD 定义需求与验收目标；实施进度、验收证据和技术结论以 GitHub Project 与 Issue 为准。
+> `firmware/` 已包含 `esp_wifi_service` 起步例程，尚未完成 BYAI 板级适配和实板验证。上述产品能力仍为待实现、待验证的目标。PRD 定义需求与验收目标；实施进度、验收证据和技术结论以 GitHub Project 与 Issue 为准。
 
 ## 🛠️ 硬件配置
 
