@@ -1,0 +1,6 @@
+dependencies:
+  espressif/adf_event_hub: {}
+  espressif/esp_cli_service: {}
+  espressif/esp_config_manager: {}
+  espressif/esp_service: {}
+  espressif/esp_wifi_service: {}

@@ -1,5 +1,11 @@
-# Local Visual Studio Code workspace settings
-.vscode/
+# Local editor settings
+/.vscode/
+/.idea/
+/.fleet/
+
+# OS metadata
+.DS_Store
+Thumbs.db
 
 # Per-machine ESP-IDF environment paths
-ENV.local
+/ENV.local

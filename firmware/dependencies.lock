@@ -1,0 +1,91 @@
+dependencies:
+  espressif/adf_event_hub:
+    component_hash: d9591691f40213f78f7a573c41a703189da6c7cf69f09e30d81ce18510a3cdcc
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.0~1
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.7.19~2
+  espressif/esp_cli_service:
+    component_hash: 8fb19ed74c4dc1b9aa5f62e21443f733898b41f42b64e502df11c085dfc96a50
+    dependencies:
+    - name: espressif/cjson
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.7
+    - name: espressif/esp_service
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.5
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/esp_config_manager:
+    component_hash: 31649a7f5cb319ed181b8f06b03d4872b161e2d4118ab8685458d49166bb263c
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.0
+  espressif/esp_service:
+    component_hash: fc6b37deb2d902cd026c76c8fe0fe455c9ec8c5fe44c9b63534b46e96ada286f
+    dependencies:
+    - name: espressif/adf_event_hub
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.5
+    - name: espressif/cjson
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.7.19
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/esp_wifi_service:
+    component_hash: 521f56c3853e8d37a06873aa2f04c53840eef37f30c66541d836b8f6e8fbb4a5
+    dependencies:
+    - name: espressif/adf_event_hub
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.5
+    - name: espressif/cjson
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - name: espressif/esp_config_manager
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.5
+    - name: espressif/esp_service
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.5
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  idf:
+    source:
+      type: idf
+    version: 6.1.0
+direct_dependencies:
+- espressif/adf_event_hub
+- espressif/esp_cli_service
+- espressif/esp_config_manager
+- espressif/esp_service
+- espressif/esp_wifi_service
+manifest_hash: 75255eca85f045373d2c93742d8643236498f44faa6401e62de552468dffc455
+target: esp32s3
+version: 3.0.0
