@@ -44,6 +44,6 @@ EIM（ESP-IDF Installation Manager）负责安装 ESP-IDF、所需工具及 Pyth
     > 如图所示，会自动识别已经安装的版本
     > ![ESPIDF版本选择](./res/ESPIDF_VERSION.png)
 
-3. 完整之后在最下方的状态栏选择芯片型号 `ESP32-S3`，然后点击构建(`🔧` 按钮)
+3. 构建前确认 VS Code 当前打开的文件夹是仓库的 `firmware/`，而不是仓库根目录。然后在底部状态栏选择芯片型号 `ESP32-S3`，点击构建（`🔧` 按钮）。
 
 如有异常请参阅：[ESP-IDF VS Code 扩展](https://docs.espressif.com/projects/vscode-esp-idf-extension/zh_CN/latest/installation.html#) 进行检查或者配置。
