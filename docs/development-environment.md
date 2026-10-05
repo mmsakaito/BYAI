@@ -1,6 +1,6 @@
 # 开发环境搭建
 
-本文记录 BYAI 开发环境的安装入口和基本配置顺序。当前仓库尚未提交固件和构建系统，因此这里先验证 ESP-IDF 工具链与 VS Code 扩展是否可用；项目的构建、烧录和硬件验证步骤将在固件接入后补充。
+本文记录 BYAI 开发环境的安装入口和 VS Code 扩展配置。当前固件工程已接入，板级适配与实板验证仍待完成。
 
 > 本文以仓库根目录的 [`config.toml`](../config.toml) 为安装配置。该文件目前指定 ESP32-S3、ESP-IDF `v6.1` 和 IDE 功能；实际安装程序及 VS Code 扩展版本会随时更新，以最新版本为准。
 
@@ -38,10 +38,12 @@ EIM（ESP-IDF Installation Manager）负责安装 ESP-IDF、所需工具及 Pyth
 
 ## 3. 在 VS Code 中配置 ESP-IDF
 
-1. 重新打开 VS Code，此时 VSCode 应该会自动识别相应环境，为确保万无一失，请按 `F1` 然后输入 `选择当前使用的 ESP-IDF 版本`，列表应该会显示当前已经安装的版本(v6.1)。
-2. 按 `F1` 输入 `ESP-IDF: Doctor Command`，检查扩展、ESP-IDF 路径和工具环境，是否有问题。
+1. 重新打开 VS Code，按 `F1` 选择 `ESP-IDF: Select Current ESP-IDF Version`，选择本机安装的 `v6.1`。
+2. 按 `F1` 输入 `ESP-IDF: Doctor Command`，检查扩展、ESP-IDF 路径和工具环境。
 
     > 如图所示，会自动识别已经安装的版本
     > ![ESPIDF版本选择](./res/ESPIDF_VERSION.png)
+
+3. 完整之后在最下方的状态栏选择芯片型号 `ESP32-S3`，然后点击构建(`🔧` 按钮)
 
 如有异常请参阅：[ESP-IDF VS Code 扩展](https://docs.espressif.com/projects/vscode-esp-idf-extension/zh_CN/latest/installation.html#) 进行检查或者配置。
