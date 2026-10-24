@@ -1,4 +1,16 @@
+#CMakeLists.txt
+#！！！在此处按照格式添加.C源文件
+#如果文件在当前目录直接输入文件名
+#如果文件在二级目录以./开头 如./drv/i2c.c
 idf_component_register(
-    SRCS         "app_main.c" "wifi_service_console.c"
-    INCLUDE_DIRS "."
-    REQUIRES     bt driver nvs_flash mbedtls)
+    SRCS
+        "top_main.c"
+        "kernel.c"
+        "gui.c"
+
+        "./app/app_test.c"
+    INCLUDE_DIRS
+        "."
+        "./app"
+    REQUIRES
+        esp_driver_i2c)
