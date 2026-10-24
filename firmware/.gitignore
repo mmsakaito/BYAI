@@ -4,5 +4,4 @@
 # ESP-IDF output and downloaded components
 /build/
 /managed_components/
-/sdkconfig
 /sdkconfig.old
