@@ -22,10 +22,12 @@
 
 /*开始你的头文件Show*/
 #include "esp_log.h"
+#include "kernel.h"
 #include "sysdef.h"
 /*写代码了*/
 void app_main(void) {
 	/*先来一个app_test工程让串口隔500ms打印数据 这是项目的开始*/
+
 	TaskHandle_t Handle_test;
 	xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, &Handle_test, 1);
 
