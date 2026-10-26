@@ -9,7 +9,6 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "./app"
-        "./drv"
     REQUIRES
         esp_driver_i2c
         esp_driver_spi
