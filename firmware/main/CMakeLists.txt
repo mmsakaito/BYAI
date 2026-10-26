@@ -9,7 +9,6 @@ idf_component_register(
         "gui.c"
         "./drv/st7789.c"
         "./app/app_test.c"
-        "./app/krnl_lvgl.c"
         INCLUDE_DIRS
         "."
         "./app"
