@@ -10,3 +10,13 @@
 - 可按工程配置启用 BluFi 配网和 Wi-Fi MCP 工具；MCP 的 UART 传输也取决于相应配置。
 
 当前代码仍是起步例程，音频、显示触控和电源等板级模块尚未接入，Wi-Fi 功能也尚未在 BYAI 实板上验证。例程源码的许可文本见 [LICENSE](./LICENSE)。
+
+## 屏幕彩条测试
+
+在 `menuconfig → BYAI hardware tests` 中打开 `Enable looping LCD TV color bars`
+（`CONFIG_BYAI_LCD_COLOR_BARS_TEST`），重新编译、烧录后，屏幕每秒轮换一次
+白、黄、青、绿、品红、红、蓝、黑八色竖条。Kconfig 默认关闭，当前工程的
+`sdkconfig` 已开启；关闭后不再发送彩条画面。
+
+当前硬件按固定背光亮度使用，尚未确认可用的背光调光接口，因此本测试不设置
+50% 背光亮度；画面颜色测试与背光调光分开处理。

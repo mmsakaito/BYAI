@@ -79,6 +79,5 @@ void krnl_setup(void *p) {
 	};
 	gpio_config(&gc);
 
-	gc.pin_bit_mask |= (1ULL << PIN_SPI2_CS);
-	gpio_config(&gc);
+	/* CS 由 SPI 驱动管理，不重复配置为普通 GPIO。 */
 }

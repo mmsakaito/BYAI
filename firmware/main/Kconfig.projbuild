@@ -1,0 +1,10 @@
+menu "BYAI hardware tests"
+
+    config BYAI_LCD_COLOR_BARS_TEST
+        bool "Enable looping LCD TV color bars"
+        default n
+        help
+            Draw eight RGB565 color bars and rotate the color order once per
+            second. Disable to leave the display available for the application.
+
+endmenu
