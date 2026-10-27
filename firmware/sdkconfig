@@ -963,6 +963,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# BYAI hardware tests
+#
+# default:
+CONFIG_BYAI_LCD_COLOR_BARS_TEST=y
+# end of BYAI hardware tests
+
+#
 # Compiler options
 #
 # default:

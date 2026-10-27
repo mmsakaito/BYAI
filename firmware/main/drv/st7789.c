@@ -8,6 +8,7 @@
 #include "kernel.h"
 #include "sysdef.h"
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 /*port相关*/
 inline void LCD_RES_Clr() {
 
@@ -42,7 +43,7 @@ void LCD_WR_DATA8(uint8_t dat)
 		.length = 8,
 		.tx_buffer = &dat,
 	};
-	spi_device_polling_transmit(hspi2,&t);
+	ESP_ERROR_CHECK(spi_device_polling_transmit(hspi2,&t));
 }
 
 
@@ -229,6 +230,40 @@ void LCD_Init(void)
 	LCD_WR_DATA8(0x00);
 	LCD_WR_DATA8(0xEF);
 	LCD_WR_REG(0x2C);
+}
+
+esp_err_t lcd_draw_color_bars(unsigned int phase)
+{
+    static const uint16_t colors[] = {
+        0xffff, 0xffe0, 0x07ff, 0x07e0,
+        0xf81f, 0xf800, 0x001f, 0x0000,
+    };
+    if (hspi2 == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint8_t *line = heap_caps_malloc(LCD_W * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (line == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    for (unsigned int x = 0; x < LCD_W; ++x) {
+        uint16_t color = colors[((x * 8 / LCD_W) + phase) % 8];
+        line[2 * x] = color >> 8;
+        line[2 * x + 1] = color & 0xff;
+    }
+    LCD_Address_Set(0, 0, LCD_W - 1, LCD_H - 1);
+    esp_err_t err = ESP_OK;
+    for (unsigned int y = 0; y < LCD_H; ++y) {
+        spi_transaction_t transaction = {
+            .length = LCD_W * 16,
+            .tx_buffer = line,
+        };
+        err = spi_device_polling_transmit(hspi2, &transaction);
+        if (err != ESP_OK) {
+            break;
+        }
+    }
+    heap_caps_free(line);
+    return err;
 }
 
 
