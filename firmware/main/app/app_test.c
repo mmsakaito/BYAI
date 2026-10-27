@@ -1,6 +1,8 @@
 #include "esp_log.h"
 #include "sysdef.h"
 #include "app_test.h"
+#include <string.h>
+#include "esp_heap_caps.h"
 
 #include "kernel.h"
 #include "st7789.h"
@@ -17,6 +19,7 @@ void main_test(void *p) {
 			continue;
 		}
 		memset(buf, 5, 12);
+		heap_caps_free(buf);
 		size_t total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
 		size_t free  = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
 		ESP_LOGI("app_test","PSRAM total=%d, free=%d\n", (int)total, (int)free);
