@@ -9,6 +9,9 @@ idf_component_register(
         "gui.c"
         "./drv/st7789.c"
         "./app/app_test.c"
+        "./board_i2c.c"
+        "./drv/bq25890.c"
+        "./app/power_test.c"
         INCLUDE_DIRS
         "."
         "./app"
