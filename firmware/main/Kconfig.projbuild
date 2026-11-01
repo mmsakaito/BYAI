@@ -15,4 +15,30 @@ menu "BYAI hardware tests"
             USB supply without a battery is the initial validation condition.
             Does not write charging settings or enable the INT GPIO.
 
+    config BYAI_POWER_DEBUG_DISABLE_WATCHDOG
+        bool "Debug only: disable BQ25890 I2C watchdog for ADC"
+        depends on BYAI_POWER_BASIC_TEST
+        default n
+        help
+            ADC test initialization clears REG07 WATCHDOG bits and verifies
+            readback, preserving other bits including the charging safety timer.
+            Avoids watchdog expiry during debugger pauses. Software loss no
+            longer restores defaults. Takes effect only with ADC test enabled.
+            Disabling this option does not restore the hardware watchdog;
+            explicit configuration or chip power-on reset is required.
+            Production watchdog servicing and battery charging policy are not
+            implemented by this debug option.
+
+    config BYAI_POWER_ADC_TEST
+        bool "Enable BQ25890 VBUS/SYS ADC test"
+        depends on BYAI_POWER_BASIC_TEST && BYAI_POWER_DEBUG_DISABLE_WATCHDOG
+        default n
+        help
+            Use 1.2-second continuous ADC windows and log VBUS/SYS in millivolts.
+            Clears continuous mode after each window and verifies readback.
+            Requires explicit debug watchdog disable; initialization verifies
+            it before sampling. Does not feed the watchdog on each conversion.
+            Enters host mode; other power/charging control bits are preserved.
+            Compare with a multimeter using USB supply without a battery.
+
 endmenu

@@ -30,14 +30,33 @@ void power_test_task(void *arg)
     i2c_master_bus_handle_t bus = NULL;
     i2c_master_dev_handle_t device = NULL;
     uint32_t success = 0, failure = 0;
-    ESP_LOGI(TAG, "BQ25890RTWT read-only test: addr=0x%02x SCL=%d SDA=%d; INT=%d unused",
+    ESP_LOGI(TAG, "BQ25890RTWT basic test: addr=0x%02x SCL=%d SDA=%d; INT=%d unused",
              BQ25890_I2C_ADDRESS, PIN_I2C1_SCL, PIN_I2C1_SDA, PIN_BQ25890_INT);
     ESP_LOGI(TAG, "Validation baseline: USB, battery disconnected; verify physically");
+#if CONFIG_BYAI_POWER_ADC_TEST
+    uint32_t adc_success = 0, adc_failure = 0;
+    ESP_LOGI(TAG, "ADC enabled: continuous-window VBUS/SYS (1200ms); debug I2C watchdog disabled with readback; no automatic restore");
+#endif
 
     while (true) {
         esp_err_t err = board_i2c_get_bus(&bus);
         if (err == ESP_OK && device == NULL) {
             err = bq25890_init(bus, &device);
+#if CONFIG_BYAI_POWER_ADC_TEST
+            if (err == ESP_OK) {
+                err = bq25890_disable_watchdog_for_debug(device);
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "Watchdog debug setup failed: %s; stopping ADC test", esp_err_to_name(err));
+                    esp_err_t cleanup_err = bq25890_deinit(&device);
+                    if (cleanup_err != ESP_OK) {
+                        ESP_LOGE(TAG, "Device cleanup failed: %s", esp_err_to_name(cleanup_err));
+                    }
+                    vTaskDelete(NULL);
+                    return;
+                }
+                ESP_LOGW(TAG, "BQ25890 I2C watchdog disabled and verified; charging safety timer preserved");
+            }
+#endif
         }
         bq25890_status_t status;
         if (err == ESP_OK) {
@@ -51,6 +70,20 @@ void power_test_task(void *arg)
                      (unsigned)status.power_good, (unsigned)status.system_min_regulation, success, failure);
             log_fault("fault_history", &status.historical_fault);
             log_fault("fault_current", &status.current_fault);
+#if CONFIG_BYAI_POWER_ADC_TEST
+            bq25890_voltages_t voltages;
+            esp_err_t adc_err = bq25890_read_voltages(device, &voltages);
+            if (adc_err == ESP_OK) {
+                ++adc_success;
+                ESP_LOGI(TAG, "adc_valid=1 VBUS=%u mV SYS=%u mV raw11=0x%02x raw0f=0x%02x adc_ok=%" PRIu32 " adc_failed=%" PRIu32,
+                         voltages.vbus_mv, voltages.sys_mv, voltages.raw_vbus, voltages.raw_sys,
+                         adc_success, adc_failure);
+            } else {
+                ++adc_failure;
+                ESP_LOGW(TAG, "adc_valid=0 error=%s adc_ok=%" PRIu32 " adc_failed=%" PRIu32,
+                         esp_err_to_name(adc_err), adc_success, adc_failure);
+            }
+#endif
         } else {
             ++failure;
             ESP_LOGW(TAG, "valid=0 error=%s ok=%" PRIu32 " failed=%" PRIu32,
