@@ -968,7 +968,7 @@ CONFIG_PARTITION_TABLE_MD5=y
 # default:
 CONFIG_BYAI_LCD_COLOR_BARS_TEST=y
 # default:
-# CONFIG_BYAI_POWER_BASIC_TEST is not set
+CONFIG_BYAI_POWER_BASIC_TEST=y
 # end of BYAI hardware tests
 
 #

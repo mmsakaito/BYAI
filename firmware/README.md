@@ -25,7 +25,8 @@
 ## BQ25890RTWT 基础电源测试
 
 在 `menuconfig → BYAI hardware tests` 中打开 `Enable BQ25890 basic power test`
-（`CONFIG_BYAI_POWER_BASIC_TEST`，默认关闭），编译后按团队硬件操作流程烧录。
+（`CONFIG_BYAI_POWER_BASIC_TEST`，Kconfig 默认关闭，当前工程的 `sdkconfig` 已开启），
+编译后按团队硬件操作流程烧录。
 测试与显示任务独立运行，可以同时开启彩条。
 
 - `20261001` 板卡使用 SCL GPIO38、SDA GPIO39，共享 I²C 总线；地址 `0x6A`，100 kHz。
