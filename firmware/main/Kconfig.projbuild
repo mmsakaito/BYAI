@@ -7,4 +7,12 @@ menu "BYAI hardware tests"
             Draw eight RGB565 color bars and rotate the color order once per
             second. Disable to leave the display available for the application.
 
+    config BYAI_POWER_BASIC_TEST
+        bool "Enable BQ25890 basic power test"
+        default n
+        help
+            Poll BQ25890 identity, power and fault status once per second.
+            USB supply without a battery is the initial validation condition.
+            Does not write charging settings or enable the INT GPIO.
+
 endmenu

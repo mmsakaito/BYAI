@@ -20,26 +20,24 @@
  *
  *******/
 
-/*开始你的头文件Show*/
 #include "esp_log.h"
-#include "kernel.h"
 #include "sysdef.h"
-/*写代码了*/
-void app_main(void) {
-	/*先来一个app_test工程让串口隔500ms打印数据 这是项目的开始*/
+#include "power_test.h"
 
-	TaskHandle_t Handle_test;
-	xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, &Handle_test, 1);
+static const char *TAG = "bringup";
 
-	/*Core 0 处理所有中断
-	 *不可以使用ESPLOGI中断不安全函数
-	 *并且必须至少有一个任务
-	 *给个while(0)*/
-	TaskHandle_t Handle_test2;
-	xTaskCreatePinnedToCore(main_test2, "app_test", 8192, NULL, 5, &Handle_test2, 0);
-	/*代码底 FreeRTOS启动*/
-	vTaskStartScheduler();
-
-	/*运行不到这里 写了也没用*/
-	while (1);
+/**
+ * @brief 启动板级测试任务；ESP-IDF 已启动调度器，app_main 可直接返回。
+ * @note 显示与电源测试独立运行；创建失败时报告错误，不重启或修改持久化数据。
+ */
+void app_main(void)
+{
+    if (xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, NULL, 1) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create display/PSRAM task");
+    }
+#if CONFIG_BYAI_POWER_BASIC_TEST
+    if (xTaskCreate(power_test_task, "power_test", 4096, NULL, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create power test task");
+    }
+#endif
 }
