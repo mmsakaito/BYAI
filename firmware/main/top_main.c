@@ -23,13 +23,16 @@
 /*开始你的头文件Show*/
 #include "esp_log.h"
 #include "kernel.h"
+#include "krnl_lvgl.h"
+#include "st7789.h"
 #include "sysdef.h"
 /*写代码了*/
 void app_main(void) {
-	/*先来一个app_test工程让串口隔500ms打印数据 这是项目的开始*/
-
-	TaskHandle_t Handle_test;
-	xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, &Handle_test, 1);
+	/*项目的开始*/
+	krnl_setup(NULL);
+	LCD_Init();
+	TaskHandle_t Handle_lvgl;
+	xTaskCreatePinnedToCore(main_lvgl, "app_lvgl", 32768, NULL, 5, &Handle_lvgl, 1);
 
 	/*Core 0 处理所有中断
 	 *不可以使用ESPLOGI中断不安全函数

@@ -14,3 +14,6 @@
 #define PIN_SPI2_RS GPIO_NUM_2
 /*定义一些常见函数*/
 #define delay_ms(x) vTaskDelay(pdMS_TO_TICKS(x))
+
+#define DISP_HOR 320
+#define DISP_VER 240

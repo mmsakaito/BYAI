@@ -10,27 +10,27 @@
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
 /*port相关*/
-inline void LCD_RES_Clr() {
+void LCD_RES_Clr() {
 
 }
-inline void LCD_RES_Set(){
+void LCD_RES_Set(){
 }
-inline void LCD_DC_Clr() {
+ void LCD_DC_Clr() {
 	gpio_set_level(PIN_SPI2_RS,0);
 }
-inline void LCD_DC_Set(){
+void LCD_DC_Set(){
 	gpio_set_level(PIN_SPI2_RS,1);
 }
-inline void LCD_CS_Clr() {
+void LCD_CS_Clr() {
 	gpio_set_level(PIN_SPI2_CS,0);
 }
-inline void LCD_CS_Set() {
+void LCD_CS_Set() {
 	gpio_set_level(PIN_SPI2_CS,1);
 }
-inline void LCD_BLK_Clr() {
+void LCD_BLK_Clr() {
 
 }
-inline void LCD_BLK_Set() {
+void LCD_BLK_Set() {
 }
 /******************************************************************************
       函数说明：LCD写入数据
