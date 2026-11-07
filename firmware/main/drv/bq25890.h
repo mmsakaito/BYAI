@@ -76,6 +76,16 @@ esp_err_t bq25890_read_status(i2c_master_dev_handle_t device, bq25890_status_t *
 esp_err_t bq25890_disable_watchdog_for_debug(i2c_master_dev_handle_t device);
 
 /**
+ * @brief ADC 独占任务启动时停止复位遗留的连续转换，并回读确认。
+ * @param device 已注册设备；调用者独占 ADC，与其他操作串行执行。
+ * @return ESP_OK、ESP_ERR_INVALID_STATE（DPDM 正在执行）、回读或 I2C 错误。
+ * @note 仅清 REG02 ADC 位，保留输入检测和其他配置；不重放 DPDM 命令。
+ *       不要求异常的 CONV_START 清零；连续模式停止及其余配置必须回读一致。
+ *       错误时硬件可能已改变，调用者须停止测试，不得当作恢复成功。
+ */
+esp_err_t bq25890_prepare_adc(i2c_master_dev_handle_t device);
+
+/**
  * @brief USB 输入有效时开启约 1.2 秒连续 ADC 窗口，读取 VBUS/SYS 后关闭连续模式。
  * @param device 已注册设备；调用者独占 ADC，所有驱动操作在同一任务串行执行。
  * @param voltages 完整成功且停止连续模式回读成功才置 valid；失败清空全部字段。

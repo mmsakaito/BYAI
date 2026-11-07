@@ -45,8 +45,11 @@ void power_test_task(void *arg)
 #if CONFIG_BYAI_POWER_ADC_TEST
             if (err == ESP_OK) {
                 err = bq25890_disable_watchdog_for_debug(device);
+                if (err == ESP_OK) {
+                    err = bq25890_prepare_adc(device);
+                }
                 if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Watchdog debug setup failed: %s; stopping ADC test", esp_err_to_name(err));
+                    ESP_LOGE(TAG, "ADC startup setup failed: %s; stopping ADC test", esp_err_to_name(err));
                     esp_err_t cleanup_err = bq25890_deinit(&device);
                     if (cleanup_err != ESP_OK) {
                         ESP_LOGE(TAG, "Device cleanup failed: %s", esp_err_to_name(cleanup_err));

@@ -221,6 +221,41 @@ esp_err_t bq25890_disable_watchdog_for_debug(i2c_master_dev_handle_t device)
     return actual == expected ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
+esp_err_t bq25890_prepare_adc(i2c_master_dev_handle_t device)
+{
+    bq25890_identity_t identity;
+    esp_err_t err = bq25890_read_identity(device, &identity);
+    if (err != ESP_OK) {
+        return err;
+    }
+    uint8_t original, actual;
+    err = read_register(device, BQ25890_REG_ADC_CONTROL, &original);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (original & BQ25890_FORCE_DPDM) {
+        ESP_LOGW(TAG, "ADC startup rejected: DPDM busy REG02=0x%02x", original);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (original & BQ25890_CONV_RATE) {
+        err = write_register(device, BQ25890_REG_ADC_CONTROL,
+                             original & ~(BQ25890_CONV_RATE | BQ25890_CONV_START));
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    err = read_register(device, BQ25890_REG_ADC_CONTROL, &actual);
+    if (err != ESP_OK) {
+        return err;
+    }
+    ESP_LOGI(TAG, "ADC startup recovery REG02 before=0x%02x after=0x%02x", original, actual);
+    if ((actual & (BQ25890_CONV_RATE | BQ25890_FORCE_DPDM)) ||
+        ((original ^ actual) & ~(BQ25890_CONV_START | BQ25890_CONV_RATE))) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+
 esp_err_t bq25890_read_voltages(i2c_master_dev_handle_t device, bq25890_voltages_t *voltages)
 {
     if (voltages == NULL) {
