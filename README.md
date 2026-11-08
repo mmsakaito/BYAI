@@ -65,12 +65,12 @@
 
 ## 🗺️ 开发路线
 
-| 阶段 | 目标 | Epic Issue |
-| :--- | :--- | :--- |
-| 首版 · 硬件适配样机 | 按 [PRD](docs/PRD.md) 验证主要硬件路径、制作并分发同版样机、完成可复现交付与联合运行；小智适配排在模块验证和整机联调之后。 | [#1 小智基础适配](https://github.com/mmsakaito/BYAI/issues/1)<br>[#2 音频驱动](https://github.com/mmsakaito/BYAI/issues/2)<br>[#3 屏幕与交互](https://github.com/mmsakaito/BYAI/issues/3)<br>[#5 电源管理](https://github.com/mmsakaito/BYAI/issues/5) |
-| 后续 · 完整基础体验 | 推进完整 AI 对话、触屏配网、表情资源、聊天记录持久化和进一步的电源能力。 | [#2 音频驱动](https://github.com/mmsakaito/BYAI/issues/2)<br>[#3 屏幕与交互](https://github.com/mmsakaito/BYAI/issues/3)<br>[#4 AI 与数据存储](https://github.com/mmsakaito/BYAI/issues/4)<br>[#5 电源管理](https://github.com/mmsakaito/BYAI/issues/5) |
-| 后续 · 自建服务扩展 | 先明确 C# 服务端边界，再推进服务切换、模型选择、在线状态和音乐资源。 | [#6 自建 C# 服务端](https://github.com/mmsakaito/BYAI/issues/6) |
-| 后续 · 实验探索 | 先验证 Windows 95、NDS 等模拟器的可行性，再决定虚拟触控手柄等配套交互。 | [#7 进阶探索](https://github.com/mmsakaito/BYAI/issues/7) |
+| 阶段 | 目标 |
+| :--- | :--- |
+| 首版 · 硬件适配样机 | 按 [PRD](docs/PRD.md) 验证主要硬件路径、制作并分发同版样机、完成可复现交付与联合运行；小智适配排在模块验证和整机联调之后。 |
+| 后续 · 完整基础体验 | 推进完整 AI 对话、触屏配网、表情资源、聊天记录持久化和进一步的电源能力。 |
+| 后续 · 自建服务扩展 | 先明确 C# 服务端边界，再推进服务切换、模型选择、在线状态和音乐资源。 |
+| 后续 · 实验探索 | 先验证 Windows 95、NDS 等模拟器的可行性，再决定虚拟触控手柄等配套交互。 |
 
 首版需求通过不等于整个 Epic 已完成。后续路线不承诺日期；实验探索必须记录测试环境、资源占用、运行证据和可行、部分可行或不可行的结论。
 
