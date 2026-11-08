@@ -41,4 +41,16 @@ menu "BYAI hardware tests"
             Enters host mode; other power/charging control bits are preserved.
             Compare with a multimeter using USB supply without a battery.
 
+    config BYAI_POWER_STATE_FAULT_TEST
+        bool "Diagnostic only: inject power state failures instead of sampling"
+        depends on BYAI_POWER_BASIC_TEST
+        default n
+        help
+            Replaces the normal power collector with a one-shot Q4/Q5 software
+            injection suite, including a real 10-second timeout checked by a
+            separate task. Uses synthetic samples, NOT measured voltages.
+            Does not initialize or access BQ25890 I2C, change charging registers,
+            or exercise real I2C failure recovery. Logs pass/fail and then stops.
+            Disable and flash the normal firmware after diagnostics.
+
 endmenu

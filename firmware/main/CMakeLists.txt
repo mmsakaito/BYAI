@@ -12,6 +12,8 @@ idf_component_register(
         "./board_i2c.c"
         "./drv/bq25890.c"
         "./app/power_test.c"
+        "./app/power_state.c"
+        "./app/power_state_fault_test.c"
         INCLUDE_DIRS
         "."
         "./app"

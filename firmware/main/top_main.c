@@ -1,42 +1,54 @@
-/*****
- * @file    top_main.c
- * @brief   程序主文件
+/**
+ * @file top_main.c
+ * @brief 启动显示/PSRAM 测试，以及互斥的正常电源采集或软件注入任务。
  *
- * @details
- * 开始写代码了
- * BYAI项目正式打响了 20261025 凌晨002000时开始代码了
- * 六个星星代表六六大顺
+ * @details ESP-IDF 已启动调度器；任务创建后 app_main 返回。
+ *          任务创建失败只记录错误，不重启设备或修改持久化数据。
  *
- * @author  BYAI三巨头
- * @version 1.0.0
- * @date    2026-10-25
- * @copyright (c) BYAI. All rights reserved.
- *
- * @note
- * 慢慢写 多用AI
- *
- * @warning
- * 时间多
- *
- *******/
+ * @author BYAI三巨头
+ * @copyright (c) 2026 BYAI. All rights reserved.
+ */
 
 #include "esp_log.h"
-#include "sysdef.h"
+
+#include "power_state_fault_test.h"
+#include "power_state_internal.h"
 #include "power_test.h"
+#include "sysdef.h"
 
 static const char *TAG = "bringup";
 
 /**
  * @brief 启动板级测试任务；ESP-IDF 已启动调度器，app_main 可直接返回。
+ *
  * @note 显示与电源测试独立运行；创建失败时报告错误，不重启或修改持久化数据。
  */
 void app_main(void)
 {
+    // 显示和 PSRAM 测试独立创建；电源功能未启用时仍可运行显示。
     if (xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create display/PSRAM task");
     }
 #if CONFIG_BYAI_POWER_BASIC_TEST
-    if (xTaskCreate(power_test_task, "power_test", 4096, NULL, 5, NULL) != pdPASS) {
+#if CONFIG_BYAI_POWER_ADC_TEST
+    const bool adc_enabled = true;
+#else
+    const bool adc_enabled = false;
+#endif
+
+    // 先预留唯一生产者并发布 Q2，任务开始运行时即可使用状态机。
+    esp_err_t power_err = power_state_begin(adc_enabled);
+    if (power_err != ESP_OK) {
+        ESP_LOGE(TAG, "Power collector already running: %s", esp_err_to_name(power_err));
+    }
+#if CONFIG_BYAI_POWER_STATE_FAULT_TEST
+    // 诊断任务与真实采集互斥，防止合成结果和实测结果同时写入一个状态机。
+    else if (xTaskCreatePinnedToCore(power_state_fault_test_task, "power_fault", 6144, NULL, 5, NULL, 1) != pdPASS) {
+#else
+    else if (xTaskCreate(power_test_task, "power_test", 4096, NULL, 5, NULL) != pdPASS) {
+#endif
+        // 预留状态成功但任务创建失败时，必须撤销运行标志并报告 Q5。
+        power_state_stop(ESP_ERR_NO_MEM);
         ESP_LOGE(TAG, "Failed to create power test task");
     }
 #endif
