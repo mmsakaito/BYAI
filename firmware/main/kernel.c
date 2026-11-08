@@ -70,4 +70,3 @@ void krnl_setup(void *p) {
 
 
 }
-

@@ -1,12 +1,12 @@
 # 参与贡献
 
-感谢参与 BYAI 小智。项目围绕 ESP32-S3、小智基础适配、音频、触屏交互、服务端和进阶实验推进；每项工作都应有可追溯的目标、验证方式和结果记录。
+感谢参与 BYAI 小智。项目围绕 ESP32-S3、音频、触屏交互和后续 AI 能力推进；工作目标、实际结果和未解决问题应便于团队查找。
 
 ## 开始前
 
 1. 先检查现有 Issue、Project 状态和相关模块，避免重复工作。
-2. 新工作优先作为现有 Epic 的子 Issue；跨模块或新增能力再创建顶层 Issue。
-3. 使用 [Issue 模板](.github/ISSUE_TEMPLATE/task.md) 建立任务，写明目标、范围、验收标准、依赖与风险。
+2. 应用功能用主 Issue 说明目标；板级、驱动和需要分配的具体工作作为直接子 Issue，保持两级。执行子 Issue 加入 Project 分配负责人和进度，小改动不必另建 Issue。
+3. 根据工作选择[功能](.github/ISSUE_TEMPLATE/feature.yml)、[硬件与驱动](.github/ISSUE_TEMPLATE/hardware.yml)或[缺陷](.github/ISSUE_TEMPLATE/bug.yml)模板；其他事项可以自由填写。
 
 ## Issue 规范
 
@@ -19,7 +19,7 @@
 常用类型：
 
 ```text
-feat | hw | build | config | design | research | spike | test | perf | fix | refactor | docs | ci | chore
+feat | hw | fix | docs
 ```
 
 范围：
@@ -32,15 +32,15 @@ repo | bringup | audio | display | touch | ui | wifi | ai | storage | power | se
 
 ```text
 feat(audio): WM8978 音频输出
-hw(power): BQ25895 通信与充电控制
+hw(power): BQ25890H 基础通信
 spike(emulator): NDS 模拟器运行可行性验证
 ```
 
-`research` 用于技术选型或资料调研；`spike` 用于有明确实验边界且必须产出可行、部分可行或不可行结论的探索。
+调研或实验可用 `research`、`spike`；其他常见 Conventional Commit 类型也可按需使用。标题说明工作内容即可，不必为了分类拆出新任务。
 
 ## Project 状态
 
-顶层 Epic 作为 Project 卡片，子 Issue 用于执行和验收。状态按以下含义维护：
+Project 用于分配执行子 Issue 和查看进度；功能主 Issue 汇总目标与结果。状态按以下含义维护：
 
 | 状态 | 使用时机 |
 | --- | --- |
@@ -48,13 +48,13 @@ spike(emulator): NDS 模拟器运行可行性验证
 | 进行中 | 正在实施或联调 |
 | 阻塞 | 等待硬件、服务、决策或外部条件 |
 | 待验证 | 实现完成，等待构建、设备或服务端验证 |
-| 已完成 | 验收通过，交付记录已补全 |
+| 已完成 | 目标已达到，实际结果已记录 |
 
 ## 开发与验证
 
-1. 修改硬件相关能力时，记录测试板、固件版本、关键配置和验证结果。
-2. 调研与实验任务需要保留步骤、数据、日志、截图或录屏，并在 Issue 中写出结论。
-3. 出现未解决的依赖或风险时，将对应 Project 卡片改为“阻塞”，说明原因和需要的外部条件。
+1. 按改动内容做必要的构建或功能检查，简要记录实际结果；不要求每个 Issue 预先填写完整测试流程。
+2. 测试记录与结果在 PR 评论中简要说明，不写入仓库文档或 README，不填写测试机路径。涉及实板时说明板卡、固件版本、关键条件和实际现象，不把构建通过写成实板通过。架构设计文档保持精简，便于查询。
+3. 调研或探索写清结论和主要依据；卡住时在 Project 中标记“阻塞”并说明原因。
 
 ## 分支规范
 
@@ -115,7 +115,7 @@ repo | bringup | audio | display | touch | ui | wifi | ai | storage | power | se
 
 ```text
 feat(audio): 实现 WM8978 I2S 音频输出
-hw(power): 验证 BQ25895 I2C 通信
+hw(power): 验证 BQ25890H I2C 通信
 build(bringup): 固定 ESP-IDF 工具链版本
 spike(emulator): 记录 NDS 模拟器可行性结果
 fix(wifi): 修复重连后网络配置丢失
@@ -158,6 +158,6 @@ feat(audio): WM8978 音频输出
 
 - 关联对应 Issue；
 - 概述实际变更；
-- 记录构建、设备或服务端验证；
+- 在 PR 评论中简要记录构建、设备或服务端验证，正文引用评论链接；
 - 说明影响、限制和证据；
 - 在合并后更新关联 Issue 与 Project 状态。
