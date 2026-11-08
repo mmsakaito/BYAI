@@ -1,0 +1,32 @@
+name: 缺陷报告
+description: 报告固件、构建或实板上的实际问题
+title: "fix(scope): "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 遇到了什么问题
+      description: 写实际现象和影响；尚未确认的原因不要当成结论。
+      placeholder: 在……时出现……，影响……
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 如何遇到
+      description: 写关键操作和当时的环境；无法稳定复现也可以直接说明。
+      placeholder: 板卡/固件版本、配置、操作……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 原本预期
+      placeholder: 预期……
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 线索（可选）
+      description: 可附日志片段、照片、相关 Issue 或临时规避办法；注意去掉凭据。

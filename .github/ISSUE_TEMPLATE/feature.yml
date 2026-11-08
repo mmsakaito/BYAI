@@ -1,0 +1,29 @@
+name: 功能需求
+description: 记录应用功能或需要协作的改动；具体实现安排放在 Project
+title: "feat(scope): "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        标题中的 scope 改为实际模块。这里只写要达到的效果；实现步骤和负责人放到 Project。
+  - type: textarea
+    id: goal
+    attributes:
+      label: 要做什么
+      description: 简单说明使用场景和完成后能看到的效果。
+      placeholder: 用户可以……；设备会……
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 怎么算完成
+      description: 写一两条可观察的结果即可，具体测试步骤可在开发时确定。
+      placeholder: 在目标设备上能……；失败时会……
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 相关信息（可选）
+      description: 可写驱动子 Issue、已有方案、依赖或当前卡点；没有可留空。

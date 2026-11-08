@@ -1,0 +1,37 @@
+name: 硬件与驱动
+description: 记录板级、外设和驱动适配；可作为功能 Issue 的子 Issue
+title: "hw(scope): "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        已确认的硬件信息和待核对项请分开写。实板结果在开发后补充，不需要创建 Issue 时预填测试结论。
+  - type: textarea
+    id: goal
+    attributes:
+      label: 要接通什么
+      description: 说明器件或接口，以及要提供给应用层的能力。
+      placeholder: 让……可读取/控制，供……功能使用。
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: 已知硬件条件
+      description: 写已确认的板卡、器件、接口和依据；未知处直接写待确认。
+      placeholder: 板卡版本、器件型号、原理图或实物依据……
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 怎么算接通
+      description: 简述预期的实板现象或接口结果；具体测试方法在实施时记录。
+      placeholder: 目标板上能……；异常时能……
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 关联与卡点（可选）
+      description: 可写父功能 Issue、缺少的资料或当前阻塞；没有可留空。
