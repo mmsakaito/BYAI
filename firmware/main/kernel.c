@@ -15,7 +15,6 @@
 #include "driver/spi_master.h"
 #include "sysdef.h"
 #include "driver/gpio.h"
-
 /* 任何任务的函数都是输入为void*输出为void，定义一个函数指针叫vptr */
 typedef void (*vptr)(void *);
 //---------------------------------------------------------
@@ -24,25 +23,12 @@ typedef void (*vptr)(void *);
 // 参数: size - 想分配的大小 字节
 // 返 回 值: void * (需强制转换)
 //---------------------------------------------------------
-// void* malloc(size_t size)
-// {
-// 	return heap_caps_malloc_default(size);
-// }
-//
-// void* realloc(void* ptr, size_t size)
-// {
-// 	return heap_caps_realloc_default(ptr, size);
-// 	//Note: LVGL需要realloc函数 ESP32 FreeRTOS刚好提供了
-// }
-//
-// void free(void *ptr)
-// {
-// 	heap_caps_free(ptr);
-// }
+
 
 void SysLoadApp() {
 	
 }
+extern void cb_spi2_irq(spi_transaction_t *t);
 spi_device_handle_t hspi2;
 void krnl_setup(void *p) {
 	/*SPI2 Init*/
@@ -53,7 +39,7 @@ void krnl_setup(void *p) {
 		.sclk_io_num = PIN_SPI2_SCK,
 		.quadhd_io_num = -1,
 		.quadwp_io_num = -1,
-		.max_transfer_sz = 0,//0=默认,
+		.max_transfer_sz = 4092,//0=默认,
 		.flags = SPICOMMON_BUSFLAG_MASTER,//初始化时检查总线
 	};
 	ret = spi_bus_initialize(SPI2_HOST, &scfg, SPI_DMA_CH_AUTO);
@@ -61,11 +47,14 @@ void krnl_setup(void *p) {
 		ESP_LOGE("TAG", "1 %s", esp_err_to_name(ret));
 		return;
 	}
+		/* 配置内存 */
+
 	spi_device_interface_config_t scfg2 = {
 		.mode = 0,
 		.clock_speed_hz = 20000000,
 		.queue_size = 8,
 		.spics_io_num = PIN_SPI2_CS,
+		.post_cb = NULL,
 	};
 	ret = spi_bus_add_device(SPI2_HOST, &scfg2, &hspi2);
 	ESP_LOGE("TAG", "2 %s", esp_err_to_name(ret));
@@ -79,5 +68,5 @@ void krnl_setup(void *p) {
 	};
 	gpio_config(&gc);
 
-	/* CS 由 SPI 驱动管理，不重复配置为普通 GPIO。 */
+
 }

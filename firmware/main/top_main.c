@@ -1,6 +1,6 @@
 /**
  * @file top_main.c
- * @brief 启动显示/PSRAM 测试，以及互斥的正常电源采集或软件注入任务。
+ * @brief 启动互斥的彩条或 LVGL 显示，以及正常电源采集或软件注入任务。
  *
  * @details ESP-IDF 已启动调度器；任务创建后 app_main 返回。
  *          任务创建失败只记录错误，不重启设备或修改持久化数据。
@@ -11,6 +11,9 @@
 
 #include "esp_log.h"
 
+#include "kernel.h"
+#include "krnl_lvgl.h"
+#include "st7789.h"
 #include "power_state_fault_test.h"
 #include "power_state_internal.h"
 #include "power_test.h"
@@ -25,10 +28,23 @@ static const char *TAG = "bringup";
  */
 void app_main(void)
 {
-    // 显示和 PSRAM 测试独立创建；电源功能未启用时仍可运行显示。
+    // 彩条与 LVGL 独占屏幕，不能同时初始化 SPI 或向同一屏幕写入。
+#if CONFIG_BYAI_LCD_COLOR_BARS_TEST
     if (xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create display/PSRAM task");
     }
+#else
+    // LVGL 沿用 dev 的初始化顺序，电源采集不依赖显示任务是否创建成功。
+    krnl_setup(NULL);
+    if (hspi2 != NULL) {
+        LCD_Init();
+        if (xTaskCreatePinnedToCore(main_lvgl, "app_lvgl", 32768, NULL, 5, NULL, 1) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create LVGL task");
+        }
+    } else {
+        ESP_LOGE(TAG, "SPI initialization failed; LVGL not started");
+    }
+#endif
 #if CONFIG_BYAI_POWER_BASIC_TEST
 #if CONFIG_BYAI_POWER_ADC_TEST
     const bool adc_enabled = true;
