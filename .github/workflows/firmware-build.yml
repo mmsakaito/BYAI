@@ -23,8 +23,6 @@ jobs:
       image: espressif/idf:v6.1@sha256:81893c71bb5e570088901f21def8684c25cd2a9020281bd01b843a7655edb18c
     env:
       IDF_CCACHE_ENABLE: '1'
-      CCACHE_DIR: ${{ github.workspace }}/.ci-cache/ccache
-      CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_MAXSIZE: 2G
     steps:
@@ -34,6 +32,12 @@ jobs:
           submodules: recursive
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Initialize container workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ci-cache/ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
 
       - name: Compute cache key
         id: cache-key
