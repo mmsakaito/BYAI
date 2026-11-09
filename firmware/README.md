@@ -2,6 +2,27 @@
 
 当前固件以乐鑫 ADF 的 `esp_wifi_service` 例程为起点，目标芯片为 ESP32-S3，使用 ESP-IDF `v6.1`。现已接入 ST7789 显示、LVGL 示例及 BQ25890H 基础电源采集；尚不是完整产品应用。
 
+## CI 与构建产物
+
+[`Firmware CI`](../.github/workflows/firmware-ci.yml) 在目标为 `dev`、`main` 的 PR、
+这两个分支的推送及手动运行中，并行执行电源状态机主机测试与 ESP32-S3 固件构建。
+固件使用固定 digest 的官方 ESP-IDF `v6.1` 容器，保留已跟踪的 `sdkconfig`、
+依赖锁文件和 LVGL 子模块版本；构建改变配置或锁文件时直接失败。
+容器启动后仅将本次 checkout 路径加入 Git 安全目录，并按容器内工作区路径定位 ccache。
+
+- 所有运行均可恢复 ccache；仅 `dev`、`main` 推送在构建、打包和上传成功后保存缓存。
+  PR 和手动运行不保存；缓存未命中时正常全量构建，旧缓存由 GitHub 自动淘汰。
+- 成功的固件 job 上传保留 14 天的 Actions artifact：
+  `BYAI_firmware_<sha>.bin`（应用镜像）、
+  `BYAI_full_flash_<sha>.bin`（按本次 SDK 参数合并的 bootloader、分区表与应用镜像）、
+  `BYAI_SHA256SUMS_<sha>.txt`（两个镜像的校验文件）；`<sha>` 为 checkout 提交的前 12 位。
+- 下载并解压后，在同一目录运行 `sha256sum -c BYAI_SHA256SUMS_<sha>.txt` 校验。
+  合并镜像不填满整个 Flash，但日后写入仍可能覆盖 NVS 所在空隙，须先确认设备和数据安全。
+
+这些是保留当前硬件调试配置的测试构建，不代表实板验收。
+CI 不访问本地配置，不执行烧录、擦除、OTA、标签推送或 GitHub Release。
+手动运行入口需 workflow 已进入默认分支；构建和下载权限仍受仓库 Actions 策略限制。
+
 ## 当前运行入口
 
 `main/top_main.c` 根据工程的 [`sdkconfig`](sdkconfig) 启动任务：
