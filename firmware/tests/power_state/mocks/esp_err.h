@@ -1,3 +1,6 @@
+/** @file esp_err.h
+ * @brief 状态机主机测试所需的 ESP-IDF 错误码子集。
+ */
 #pragma once
 
 typedef int esp_err_t;

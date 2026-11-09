@@ -1,57 +1,72 @@
 # BYAI 固件起步工程
 
-当前固件以乐鑫 ADF 的 `esp_wifi_service` 例程为起点，目标芯片为 ESP32-S3。它提供 Wi-Fi 服务骨架，供后续逐步接入 BYAI 板上的其他模块。
+当前固件以乐鑫 ADF 的 `esp_wifi_service` 例程为起点，目标芯片为 ESP32-S3，使用 ESP-IDF `v6.1`。现已接入 ST7789 显示、LVGL 示例及 BQ25890H 基础电源采集；尚不是完整产品应用。
 
-## 基础功能
+## 当前运行入口
+
+`main/top_main.c` 根据工程的 [`sdkconfig`](sdkconfig) 启动任务：
+
+- 当前关闭彩条测试，运行 LVGL 旋转圆弧示例；开启彩条后改为屏幕/PSRAM 测试，两条显示路径互斥。
+- 当前开启基础电源测试、调试关闭 BQ I²C 看门狗及 VBUS/SYS ADC，关闭软件故障注入；电源任务与显示任务独立运行。
+- PSRAM 已启用启动初始化和内存测试，LVGL 动态内存使用 PSRAM；彩条路径中的循环 PSRAM 检查不在当前 LVGL 路径运行。
+- 尚未接入 Wi-Fi 服务入口、音频和触控；圆弧示例不展示网络或电源数据，也不是产品自检界面。
+
+## Wi-Fi 例程能力（当前未接入）
+
+以下为上游起步例程的能力，不代表当前主程序已提供这些入口：
 
 - 没有可用的 Wi-Fi 配置文件时，通过设备 SoftAP 启动 HTTP 网页配网；配网页面通过设备热点访问，不是已连接局域网内的管理后台。
 - 在 NVS 中保存和管理 Wi-Fi 配置文件，并由 Wi-Fi service 选择网络、处理连接状态和相关事件。
 - 通过 `wifi>` 串口交互入口管理配置文件、请求连接、启动或停止配网、重新评估网络，并可重启设备。
 - 可按工程配置启用 BluFi 配网和 Wi-Fi MCP 工具；MCP 的 UART 传输也取决于相应配置。
 
-以上是起步例程的 Wi-Fi 服务能力；当前主程序运行屏幕/PSRAM 测试和可选的电源通信测试，
-尚未接入这些 Wi-Fi 服务入口，音频和触控仍待接入。例程源码的许可文本见 [LICENSE](./LICENSE)。
+当前应用源文件由 `main/CMakeLists.txt` 显式列出，主程序未启动 Wi-Fi 服务；仅保留相关组件依赖与配置不等于已联网。例程源码的许可文本见 [LICENSE](./LICENSE)。
 
 ## 屏幕彩条测试
 
 在 `menuconfig → BYAI hardware tests` 中打开 `Enable looping LCD TV color bars`
 （`CONFIG_BYAI_LCD_COLOR_BARS_TEST`），重新编译、烧录后，屏幕每秒轮换一次
 白、黄、青、绿、品红、红、蓝、黑八色竖条。Kconfig 默认关闭，当前工程的
-`sdkconfig` 已开启；关闭后不再发送彩条画面。
+`sdkconfig` 也已关闭；关闭时运行 LVGL 圆弧示例，不发送彩条画面。
 
 当前硬件按固定背光亮度使用，尚未确认可用的背光调光接口，因此本测试不设置
 50% 背光亮度；画面颜色测试与背光调光分开处理。
 
-## BQ25890RTWT 基础电源测试
+## BQ25890H 基础电源测试
 
 在 `menuconfig → BYAI hardware tests` 中打开 `Enable BQ25890 basic power test`
 （`CONFIG_BYAI_POWER_BASIC_TEST`，Kconfig 默认关闭，当前工程的 `sdkconfig` 已开启），
 编译后按团队硬件操作流程烧录。
 测试与显示任务独立运行，可以同时开启彩条。
 
+原理图 U2 标注为 BQ25890RTWT，当前实板按 BQ25890H 使用。
+
 - `20261001` 板卡使用 SCL GPIO38、SDA GPIO39，共享 I²C 总线；地址 `0x6A`，100 kHz。
 - INT 接 GPIO4（成员提供的接线信息），当前不配置该引脚、不启用中断。
-- 每秒读取芯片身份、输入源、充电状态、PG/VSYSMIN 及历史/当前故障，保留原始寄存器。
-- `valid=1` 只表示本轮读取成功；不表示供电、电池或充电功能已经验收。
-  `valid=0` 会附错误及累计计数，不返回旧状态；瞬态错误下轮重试，型号不符则停止测试。
+- 每轮读取芯片身份、输入源、充电状态、PG/VSYSMIN 及历史/当前故障，保留原始寄存器；轮末等待 1 秒，实际周期还包含 I²C、可选 ADC 及日志开销。
+- 日志使用状态快照的 `current_valid`、`stale` 和 `error` 标识本轮有效性及错误；失败时保留最近完整成功数据并标记旧值，不将旧值当作当前有效状态。Q3 只表示完整采集成功，不表示供电、电池或充电功能已经验收。普通采样错误下轮重试，型号不符或 ADC 启动配置校验失败则停止测试。
 - 仅开启基础测试时不写充电配置、不启用 ADC；不估算电量、电流，也不根据寄存器状态判断电池是否连接。
 - 故障寄存器连续读取两次：第一次保存锁存故障，第二次保存当前故障；读取会消费锁存信息。
   默认模式可能报告 watchdog 位，需按芯片手册解释，不能直接等同于 ESP32 看门狗或供电故障。
 
 电源测试用于 **USB 供电且不接电池** 的调试；软件不能核实实际接线。
 
-不接硬件的驱动测试可在 Linux/macOS 使用 C 编译器运行：
+### 主机测试
+
+不接硬件的电源状态机测试可在 Linux/macOS 使用 C 编译器运行：
 
 ```sh
-bash tests/power/run.sh
+bash tests/power_state/run.sh
 ```
 
-该测试模拟 I²C 响应与错误，产物位于临时目录；不能替代实板通信和电压测量。
+该测试覆盖状态转换、旧值、超时和并发快照，不访问 I²C，产物位于临时目录；不能替代实板验证。
+
+驱动测试入口 `tests/power/run.sh` 尚需补齐 ADC 路径的 ESP-IDF 依赖替身，暂不能独立编译当前完整驱动；不能将该入口视为当前驱动已通过主机验证的依据。
 
 ### 可选 VBUS/SYS ADC 调试
 
 在同一菜单依次开启 `CONFIG_BYAI_POWER_DEBUG_DISABLE_WATCHDOG` 和
-`CONFIG_BYAI_POWER_ADC_TEST`（均默认关闭）。仅用于 USB 供电、不接电池的初期调试。
+`CONFIG_BYAI_POWER_ADC_TEST`（Kconfig 均默认关闭，当前工程的 `sdkconfig` 均已开启）。仅用于 USB 供电、不接电池的初期调试。
 初始化仅清除 REG07 的 I²C 看门狗位并回读确认，保留充电安全计时器等其他位；
 然后在独占 ADC 的前提下停止 ESP32 复位遗留的连续转换并回读确认，不改变输入检测配置；
 若 DPDM 正在执行或初始化失败则停止测试。随后每轮开启约 1.2 秒连续转换窗口，读取 VBUS/SYS 并输出毫伏值，
@@ -72,6 +87,8 @@ bash tests/power/run.sh
 
 使用数据前检查 `current_valid`；Q4 的旧值必须注明重试中，Q5 的历史数据仅供诊断。
 状态图、状态职责表和接口说明见 [电源状态接口](../docs/power-state.md)。
+
+当前接口用于采集日志，尚未接入 LVGL 电源页面；界面实施见 [#59](https://github.com/mmsakaito/BYAI/issues/59)。
 
 可选 `CONFIG_BYAI_POWER_STATE_FAULT_TEST`（默认关闭）会以软件注入任务替代正常电源采集，
 自动验证 Q4/Q5、恢复和真实 10 秒超时。此时日志中的合成数据不是实测，且不访问 BQ I²C；

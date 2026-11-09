@@ -1,3 +1,7 @@
+/**
+ * @file board_i2c.c
+ * @brief 按需创建并保留板级共享 I2C 总线。
+ */
 #include "board_i2c.h"
 
 #include "sysdef.h"

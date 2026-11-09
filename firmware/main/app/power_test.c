@@ -1,3 +1,8 @@
+/**
+ * @file power_test.c
+ * @brief 单任务采集 BQ25890 状态与可选电压，每轮发布一次完整结果。
+ */
+
 #include "power_test.h"
 
 #include <inttypes.h>

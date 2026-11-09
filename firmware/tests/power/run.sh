@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 在临时目录编译真实驱动与 I2C 替身；退出时清理产物，不依赖 ESP-IDF。
 set -euo pipefail
 test_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 test_build_dir="$(mktemp -d)"

@@ -1,3 +1,8 @@
+/**
+ * @file power_state.h
+ * @brief 电源数据有效性、历史样本与多任务一致性快照查询接口。
+ */
+
 #pragma once
 
 #include <stdbool.h>

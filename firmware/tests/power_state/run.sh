@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 在临时目录编译真实状态机与主机平台替身，使用 pthread 检查并发快照。
 set -euo pipefail
 test_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 test_build_dir="$(mktemp -d)"

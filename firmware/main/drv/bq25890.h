@@ -1,3 +1,8 @@
+/**
+ * @file bq25890.h
+ * @brief BQ25890 设备生命周期、状态读取与调试 ADC 接口。
+ */
+
 #pragma once
 
 #include <stdbool.h>
@@ -6,12 +11,14 @@
 
 #define BQ25890_I2C_ADDRESS 0x6a
 
+/** @brief REG14 身份字段；PN 匹配不保证具体封装或同 PN 变体。 */
 typedef struct {
     uint8_t raw;
     uint8_t part_number;
     uint8_t revision;
 } bq25890_identity_t;
 
+/** @brief REG0C 解码；历史与当前故障由读取次序区分。 */
 typedef struct {
     uint8_t raw;
     bool watchdog;
@@ -21,6 +28,7 @@ typedef struct {
     uint8_t ntc;     /**< 保留 NTC_FAULT 原始编码，不能据此推断电池是否连接。 */
 } bq25890_fault_t;
 
+/** @brief 完整成功才置 valid 的状态样本；失败输出清零。 */
 typedef struct {
     bool valid;
     bq25890_identity_t identity;
@@ -33,6 +41,7 @@ typedef struct {
     bq25890_fault_t current_fault;
 } bq25890_status_t;
 
+/** @brief 采样及停止连续转换均成功才有效的电压样本，单位毫伏。 */
 typedef struct {
     bool valid;
     uint8_t raw_vbus;
@@ -44,9 +53,10 @@ typedef struct {
 /**
  * @brief 在借用总线上注册 0x6A 设备并检查 BQ25890 身份。
  * @param bus 板级总线，调用者保持其生命周期。
- * @param out_device 成功后归调用者持有；失败为 NULL，无有效设备遗留。
+ * @param out_device 成功后归调用者持有；非 NULL 输出在失败时置 NULL。
  * @return ESP_OK、ESP_ERR_NOT_SUPPORTED（型号不符）或 I2C/资源错误。
- * @note 同一设备只注册一次；失败回收设备，不写芯片配置。
+ * @note 同一设备只注册一次；身份检查失败时尝试移除设备，但不检查移除结果，
+ *       因而不能保证无设备资源遗留；仍返回身份检查错误。不写芯片配置。
  */
 esp_err_t bq25890_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *out_device);
 

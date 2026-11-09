@@ -5,7 +5,6 @@
  * @details ESP-IDF 已启动调度器；任务创建后 app_main 返回。
  *          任务创建失败只记录错误，不重启设备或修改持久化数据。
  *
- * @author BYAI三巨头
  * @copyright (c) 2026 BYAI. All rights reserved.
  */
 
@@ -34,7 +33,7 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to create display/PSRAM task");
     }
 #else
-    // LVGL 沿用 dev 的初始化顺序，电源采集不依赖显示任务是否创建成功。
+    // 先初始化显示再创建 LVGL 任务；电源采集不依赖显示任务是否创建成功。
     krnl_setup(NULL);
     if (hspi2 != NULL) {
         LCD_Init();

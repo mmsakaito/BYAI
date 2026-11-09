@@ -1,3 +1,8 @@
+/**
+ * @file power_state_fault_test.h
+ * @brief 诊断配置下替代正常采集的软件故障注入任务接口。
+ */
+
 #pragma once
 
 /**

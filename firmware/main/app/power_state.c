@@ -1,3 +1,10 @@
+/**
+ * @file power_state.c
+ * @brief 以短临界区维护电源快照、连续失败状态与无结果超时。
+ *
+ * 仅管理内存状态；不拥有采集任务或硬件，不执行 I2C 与资源回收。
+ */
+
 #include "power_state_internal.h"
 
 #include <limits.h>

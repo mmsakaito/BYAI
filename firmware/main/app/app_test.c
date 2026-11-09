@@ -1,3 +1,7 @@
+/**
+ * @file app_test.c
+ * @brief 彩条显示与周期性 PSRAM 分配诊断任务。
+ */
 #include "esp_log.h"
 #include "sysdef.h"
 #include "app_test.h"
