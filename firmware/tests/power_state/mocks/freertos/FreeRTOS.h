@@ -1,3 +1,6 @@
+/** @file FreeRTOS.h
+ * @brief 用 pthread 互斥锁模拟状态机临界区，不模拟 FreeRTOS 中断屏蔽。
+ */
 #pragma once
 
 #include <pthread.h>

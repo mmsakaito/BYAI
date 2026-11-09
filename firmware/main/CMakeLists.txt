@@ -1,4 +1,4 @@
-# Keep application sources explicit so local diagnostic files are not compiled.
+# 应用源文件显式列出，避免编入本地诊断文件；仅 LVGL 源码递归收集。
 file(GLOB_RECURSE LVGL_C "lib/lvgl/src/*.c")
 
 idf_component_register(

@@ -1,5 +1,5 @@
 # clangd reads this file for C/C++ formatting inside firmware/.
-# Four-space indentation and a 120-column limit follow the ESP-IDF style guide.
+# Use four-space indentation and a 120-column limit.
 BasedOnStyle: LLVM
 IndentWidth: 4
 ContinuationIndentWidth: 4

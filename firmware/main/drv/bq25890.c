@@ -1,3 +1,10 @@
+/**
+ * @file bq25890.c
+ * @brief BQ25890 同步寄存器访问、故障读取与调试 ADC 窗口控制。
+ *
+ * 设备操作由调用任务串行执行；共享总线由板级模块持有。
+ */
+
 #include "bq25890.h"
 
 #include <string.h>
@@ -217,7 +224,6 @@ static void log_adc_snapshot(i2c_master_dev_handle_t device, const char *stage)
 {
     static const uint8_t registers[] = { 0x00, 0x02, 0x03, 0x07, 0x0b, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14 };
 
-    // 逐个读取，单项失败不打印未初始化值；此白名单故意不含会消费历史的 REG0C。
     for (unsigned i = 0; i < sizeof(registers) / sizeof(registers[0]); ++i) {
         uint8_t value;
         esp_err_t err = read_adc_register(device, registers[i], &value, stage);
@@ -304,7 +310,7 @@ esp_err_t bq25890_prepare_adc(i2c_master_dev_handle_t device)
 
     ESP_LOGI(TAG, "ADC startup recovery REG02 before=0x%02x after=0x%02x", original, actual);
 
-    // 启动位不清零的根因尚未解决；这里只验证连续模式停止且其余控制位未变。
+    // 允许 CONV_START 仍置位；只确认连续模式停止及其余配置未变，不据此判断单次转换完成。
     if ((actual & (BQ25890_CONV_RATE | BQ25890_FORCE_DPDM)) ||
         ((original ^ actual) & ~(BQ25890_CONV_START | BQ25890_CONV_RATE))) {
         return ESP_ERR_INVALID_RESPONSE;

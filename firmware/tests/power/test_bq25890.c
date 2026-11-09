@@ -1,4 +1,7 @@
-/* Host-only I2C fault injection; real ESP-IDF types are checked by the firmware build. */
+/**
+ * @file test_bq25890.c
+ * @brief 主机 I2C 替身测试，覆盖状态解码、读失败和设备句柄清理，不验证实板通信。
+ */
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -71,6 +74,7 @@ static void assert_empty(const bq25890_status_t *status)
 
 int main(void)
 {
+    /* 设备生命周期与完整状态解码。 */
     reset_mock();
     i2c_master_dev_handle_t device = NULL;
     assert(bq25890_init(&token, &device) == ESP_OK);
@@ -120,6 +124,7 @@ int main(void)
             assert(bq25890_read_status(&token, &status) == ESP_OK && status.valid);
         }
     }
+    /* 不支持的芯片身份及初始化各阶段失败时的资源清理。 */
     reset_mock();
     values[0] = 0x00;
     memset(&status, 0xff, sizeof(status));
@@ -146,6 +151,7 @@ int main(void)
     assert(bq25890_init(&token, &device) == ESP_ERR_TIMEOUT);
     assert(device == NULL && added == 1 && removed == 1);
 
+    /* 删除失败保留句柄；无效参数不泄漏旧状态。 */
     reset_mock();
     device = &token;
     remove_error = ESP_ERR_TIMEOUT;

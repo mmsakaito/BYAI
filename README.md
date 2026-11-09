@@ -12,7 +12,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-E7352C?style=for-the-badge&logo=espressif&logoColor=white)
 ![UI](https://img.shields.io/badge/UI-LVGL-00979D?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-规划与探索-FFB300?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-硬件适配与联调-FFB300?style=for-the-badge)
 
 ### [📖 开发环境安装说明](docs/development-environment.md)
 
@@ -35,7 +35,7 @@
 **先把基础做扎实，再把想象力装进去。**
 
 > [!NOTE]
-> `firmware/` 已包含 `esp_wifi_service` 起步例程，尚未完成 BYAI 板级适配和实板验证。上述产品能力仍为待实现、待验证的目标。PRD 定义需求与验收目标；实施进度、验收证据和技术结论以 GitHub Project 与 Issue 为准。
+> `firmware/` 从 `esp_wifi_service` 例程起步，现已接入 ST7789 显示、LVGL 圆弧示例和 BQ25890H 基础电源采集及状态接口。Wi-Fi 服务入口、音频、触控和产品页面仍待接入，板级适配与整机验收尚未完成。当前运行方式见 [固件说明](firmware/README.md)；PRD 定义需求与验收目标，实施进度以 GitHub Project 与 Issue 为准，实测记录见相关 PR 评论。
 
 ## 🛠️ 硬件配置
 
@@ -49,7 +49,7 @@
 | ⚡ 降压芯片 | **EA2208T6R**（U1） | 降压供电 |
 | 🔋 升压芯片 | **EA8101T5R**（U3） | 升压供电 |
 | 🔌 电池充电芯片 | **BQ25890RTWT**（U2） | 电池充电管理 |
-| 🖥️ 触摸屏 | **2.4 英寸电容触摸屏** | 原理图标出 FPC1（16 pin）；屏幕/触控控制器型号和接口细节待补 |
+| 🖥️ 触摸屏 | **2.4 英寸电容触摸屏** | 原理图标出 FPC1（16 pin）；当前显示驱动采用 ST7789，完整模组资料及触控控制器与接口细节待补 |
 | 🔌 板上接口 | 2 × USB Type-C、TF 卡座、3.5 mm 耳机座 | 原理图可见；引脚用途和实机功能仍按板级资料核对 |
 
 以上型号依据 `20261001` 工程原理图 P1/P2 记录；原理图标注不代表实物装配、连线或功能已经验证。

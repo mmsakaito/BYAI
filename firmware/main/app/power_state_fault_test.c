@@ -1,3 +1,8 @@
+/**
+ * @file power_state_fault_test.c
+ * @brief 以合成结果及真实单调时间检查电源状态机，不访问充电芯片。
+ */
+
 #include "sdkconfig.h"
 
 #if CONFIG_BYAI_POWER_STATE_FAULT_TEST
@@ -39,7 +44,6 @@ typedef struct {
  */
 static bool same_sample(const power_state_sample_t *a, const power_state_sample_t *b)
 {
-    // 比较全部业务字段而非 memcmp，避免结构体填充字节影响注入测试结果。
     return a->identity_raw == b->identity_raw && a->part_number == b->part_number && a->revision == b->revision &&
            a->input_source == b->input_source && a->charge_state == b->charge_state && a->power_good == b->power_good &&
            a->system_min_regulation == b->system_min_regulation && a->fault_history_raw == b->fault_history_raw &&
@@ -56,7 +60,6 @@ static bool same_sample(const power_state_sample_t *a, const power_state_sample_
  */
 static void inject_result(esp_err_t error)
 {
-    // 让真实 ESP32 时钟推进；这里只发布软件结果，不读取或写入充电芯片。
     vTaskDelay(pdMS_TO_TICKS(100));
     power_state_record_attempt();
 

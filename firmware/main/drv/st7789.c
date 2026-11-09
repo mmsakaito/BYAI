@@ -1,3 +1,7 @@
+/**
+ * @file st7789.c
+ * @brief ST7789 同步 SPI 命令、面板初始化及彩条绘制。
+ */
 #include <stdint.h>
 
 
@@ -9,7 +13,7 @@
 #include "sysdef.h"
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
-/*port相关*/
+/* 当前复位接口为空，不产生硬件复位；D/C 由 GPIO 控制。 */
 void LCD_RES_Clr() {
 
 }
@@ -21,22 +25,19 @@ void LCD_RES_Set(){
 void LCD_DC_Set(){
 	gpio_set_level(PIN_SPI2_RS,1);
 }
+/* 保留的手动片选接口；正常 SPI 传输使用设备配置的硬件片选。 */
 void LCD_CS_Clr() {
 	gpio_set_level(PIN_SPI2_CS,0);
 }
 void LCD_CS_Set() {
 	gpio_set_level(PIN_SPI2_CS,1);
 }
+/* 当前背光接口为空，不改变背光状态。 */
 void LCD_BLK_Clr() {
 
 }
 void LCD_BLK_Set() {
 }
-/******************************************************************************
-      函数说明：LCD写入数据
-      入口数据：dat 写入的数据
-      返回值：  无
-******************************************************************************/
 void LCD_WR_DATA8(uint8_t dat)
 {
 	spi_transaction_t t={
@@ -47,11 +48,6 @@ void LCD_WR_DATA8(uint8_t dat)
 }
 
 
-/******************************************************************************
-      函数说明：LCD写入数据
-      入口数据：dat 写入的数据
-      返回值：  无
-******************************************************************************/
 void LCD_WR_DATA(uint16_t dat)
 {
 	LCD_WR_DATA8(dat>>8);
@@ -59,84 +55,72 @@ void LCD_WR_DATA(uint16_t dat)
 }
 
 
-/******************************************************************************
-      函数说明：LCD写入命令
-      入口数据：dat 写入的命令
-      返回值：  无
-******************************************************************************/
 void LCD_WR_REG(uint8_t dat)
 {
-	LCD_DC_Clr();//写命令
+	LCD_DC_Clr();
 	LCD_WR_DATA8(dat);
-	LCD_DC_Set();//写数据
+	LCD_DC_Set();
 }
 
 
-/******************************************************************************
-      函数说明：设置起始和结束地址
-      入口数据：x1,x2 设置列的起始和结束地址
-                y1,y2 设置行的起始和结束地址
-      返回值：  无
-******************************************************************************/
 void LCD_Address_Set(uint16_t x1,uint16_t y1,uint16_t x2,uint16_t y2)
 {
+	/* 竖屏沿用 20 行偏移；方向 0 当前不发送 RAM 写命令。 */
 	if(USE_HORIZONTAL==0)
 	{
-		LCD_WR_REG(0x2a);//列地址设置
+		LCD_WR_REG(0x2a);
 		LCD_WR_DATA(x1);
 		LCD_WR_DATA(x2);
-		LCD_WR_REG(0x2b);//行地址设置
+		LCD_WR_REG(0x2b);
 		LCD_WR_DATA(y1+20);
 		LCD_WR_DATA(y2+20);
-		//LCD_WR_REG(0x2c);//储存器写
 	}
 	else if(USE_HORIZONTAL==1)
 	{
-		LCD_WR_REG(0x2a);//列地址设置
+		LCD_WR_REG(0x2a);
 		LCD_WR_DATA(x1);
 		LCD_WR_DATA(x2);
-		LCD_WR_REG(0x2b);//行地址设置
+		LCD_WR_REG(0x2b);
 		LCD_WR_DATA(y1+20);
 		LCD_WR_DATA(y2+20);
-		LCD_WR_REG(0x2c);//储存器写
+		LCD_WR_REG(0x2c);
 	}
 	else if(USE_HORIZONTAL==2)
 	{
-		LCD_WR_REG(0x2a);//列地址设置
+		LCD_WR_REG(0x2a);
 		LCD_WR_DATA(x1);
 		LCD_WR_DATA(x2);
-		LCD_WR_REG(0x2b);//行地址设置
+		LCD_WR_REG(0x2b);
 		LCD_WR_DATA(y1);
 		LCD_WR_DATA(y2);
-		LCD_WR_REG(0x2c);//储存器写
+		LCD_WR_REG(0x2c);
 	}
 	else
 	{
-		LCD_WR_REG(0x2a);//列地址设置
+		LCD_WR_REG(0x2a);
 		LCD_WR_DATA(x1);
 		LCD_WR_DATA(x2);
-		LCD_WR_REG(0x2b);//行地址设置
+		LCD_WR_REG(0x2b);
 		LCD_WR_DATA(y1);
 		LCD_WR_DATA(y2);
-		LCD_WR_REG(0x2c);//储存器写
+		LCD_WR_REG(0x2c);
 	}
 }
 
 void LCD_Init(void)
 {
 
-	LCD_RES_Clr();//复位
+	LCD_RES_Clr();
 	delay_ms(100);
 	LCD_RES_Set();
 	delay_ms(500);
 
-	LCD_BLK_Set();//打开背光
+	LCD_BLK_Set();
     delay_ms(500);
 
-	//************* Start Initial Sequence **********//
-	LCD_WR_REG(0x11); //Sleep out
-	delay_ms(120);              //Delay 120ms
-	//************* Start Initial Sequence **********//
+	/* 沿用当前面板初始化参数；不据此推断实际电压或刷新率。 */
+	LCD_WR_REG(0x11); // 退出休眠后等待面板稳定。
+	delay_ms(120);
 	LCD_WR_REG(0x36);
 	if(USE_HORIZONTAL==0)LCD_WR_DATA8(0x00);
 	else if(USE_HORIZONTAL==1)LCD_WR_DATA8(0xC0);
@@ -157,22 +141,22 @@ void LCD_Init(void)
 	LCD_WR_DATA8(0x56);
 
 	LCD_WR_REG(0xBB);
-	LCD_WR_DATA8(0x20); //Vcom=1.35V?
+	LCD_WR_DATA8(0x20);
 
 	LCD_WR_REG(0xC0);
 	LCD_WR_DATA8(0x2C);
 
 	LCD_WR_REG(0xC2);
-	LCD_WR_DATA8(0x01); //GVDD=4.8V  颜色深度
+	LCD_WR_DATA8(0x01);
 
 	LCD_WR_REG(0xC3);
-	LCD_WR_DATA8(0x0F); //VDV, 0x20:0v
+	LCD_WR_DATA8(0x0F);
 
 	LCD_WR_REG(0xC4);
-	LCD_WR_DATA8(0x20); //0x0F:60Hz
+	LCD_WR_DATA8(0x20);
 
 	LCD_WR_REG(0xC6);
-	LCD_WR_DATA8(0x0F); //0x0F:60Hz
+	LCD_WR_DATA8(0x0F);
 
 	LCD_WR_REG(0xD0);
 	LCD_WR_DATA8(0xA4);

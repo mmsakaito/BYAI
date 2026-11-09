@@ -6,6 +6,15 @@ Wi-Fi Service MCP UART test client.
 Protocol:
   - Send: one JSON-RPC request per line, terminated by '\\n'
   - Receive: one JSON-RPC response per line, terminated by '\\n'
+  - Skip non-JSON log lines; the first line starting with '{' is used as the response.
+    Request IDs are sent but response IDs are not checked; use a dedicated UART client.
+
+Scope:
+  - Requires firmware exposing the Wi-Fi service MCP tools; discovery does not exercise every tool.
+  - The default checks also request selector re-evaluation, so they are not strictly read-only.
+  - --negative checks one invalid argument case.
+  - --mutating adds and enables a random profile and requests provisioning start/stop.
+    The added profile is not deleted, and failures do not restore prior device state.
 
 Usage:
     python3 scripts/test_wifi_service_mcp_uart.py <serial-port> [baud-rate]
@@ -46,6 +55,7 @@ WIFI_TOOLS = {
 
 
 class MCPUartClient:
+    """Own a serial connection and exchange newline-delimited JSON-RPC synchronously."""
     def __init__(self, port, baud_rate=115200, timeout=3.0):
         self.port = port
         self.baud_rate = baud_rate
@@ -89,6 +99,7 @@ class MCPUartClient:
         self.ser = None
 
     def send_raw(self, data):
+        """Return the first JSON-looking line, or raise on a closed port or timeout."""
         if not self.ser or not self.ser.is_open:
             raise RuntimeError('Serial port is not open')
 
@@ -148,6 +159,7 @@ def assert_response_ok(response, context):
 
 
 def parse_tool_text_result(response, context, allow_tool_error=False):
+    """Return the first MCP text item as JSON when possible, plus its tool-error flag."""
     result = assert_response_ok(response, context)
     is_error = bool(result.get('isError', False))
     if is_error and not allow_tool_error:
@@ -180,6 +192,7 @@ def generate_test_profile():
 
 
 def run_tests(client, include_mutating, include_negative):
+    """Check discovery and response shapes, with optional negative and state-changing groups."""
     print('\n== Test: tools/list ==')
     listed = assert_response_ok(client.list_tools(), 'tools/list')
     tools = listed.get('tools', [])

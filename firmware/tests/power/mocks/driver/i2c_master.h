@@ -1,3 +1,6 @@
+/** @file i2c_master.h
+ * @brief BQ25890 主机测试的最小 I2C 声明，行为由测试中的替身实现。
+ */
 #pragma once
 
 #include <stddef.h>

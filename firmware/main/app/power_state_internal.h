@@ -1,3 +1,8 @@
+/**
+ * @file power_state_internal.h
+ * @brief 启动者与唯一采集任务使用的状态发布接口，不供普通消费者写入。
+ */
+
 #pragma once
 
 #include "power_state.h"
@@ -9,7 +14,8 @@
  *
  * @return 已有活动采集者时返回 ESP_ERR_INVALID_STATE，否则返回 ESP_OK。
  *
- * @note 清除历史状态；不创建任务、不访问芯片。必须先退出旧任务再重新启动。
+ * @note 清除历史状态；内部持短临界区，不可从 ISR 调用。不创建任务、不访问芯片。
+ *       必须先退出旧任务再重新启动。
  */
 esp_err_t power_state_begin(bool adc_enabled);
 

@@ -1,3 +1,8 @@
+/**
+ * @file test_power_state.c
+ * @brief 使用可控时钟和 pthread 锁检查电源状态机，不验证实板中断或调度时序。
+ */
+
 #include <assert.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -14,7 +19,7 @@ int64_t esp_timer_get_time(void)
     return atomic_load(&now_us);
 }
 
-/** @brief 断言快照查询成功并返回独立副本，避免各场景重复错误处理。 */
+/** @brief 查询快照并断言成功，供各场景检查返回的值副本。 */
 static power_state_snapshot_t get(void)
 {
     power_state_snapshot_t result;
@@ -25,7 +30,6 @@ static power_state_snapshot_t get(void)
 /** @brief 重置上一个软件采集生命周期，以固定时间开始独立测试场景。 */
 static void begin(bool adc_enabled)
 {
-    // 每个场景独立运行，保留真实模块实现，仅以主机时钟和锁替代平台依赖。
     power_state_stop(ESP_FAIL);
     atomic_store(&now_us, 100);
     assert(power_state_begin(adc_enabled) == ESP_OK);
@@ -58,7 +62,6 @@ static void publish_failure(void)
     atomic_fetch_add(&now_us, 10);
     power_state_record_attempt();
 
-    // 提供与历史数据不同的部分样本，验证错误发布不会偷偷覆盖旧结果。
     power_state_sample_t partial = sample(999);
     power_state_publish(&partial, ESP_ERR_TIMEOUT);
 }
@@ -246,7 +249,6 @@ static void test_concurrent_snapshots(void)
     begin(true);
     pthread_t threads[3];
 
-    // 一写两读并发运行；先等待全部线程结束，再断言最终成功发布没有丢失。
     assert(pthread_create(&threads[0], NULL, writer, NULL) == 0);
     assert(pthread_create(&threads[1], NULL, reader, NULL) == 0);
     assert(pthread_create(&threads[2], NULL, reader, NULL) == 0);
