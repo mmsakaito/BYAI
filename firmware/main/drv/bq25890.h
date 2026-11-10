@@ -11,7 +11,7 @@
 
 #define BQ25890_I2C_ADDRESS 0x6a
 
-/** @brief REG14 身份字段；PN 匹配不保证具体封装或同 PN 变体。 */
+/** @brief REG14 的 PN 和修订字段；具体封装与同 PN 变体由芯片实物标识确认。 */
 typedef struct {
     uint8_t raw;
     uint8_t part_number;
@@ -25,7 +25,7 @@ typedef struct {
     bool boost;
     uint8_t charge;  /**< REG0C CHRG_FAULT: 0 正常、1 输入、2 热关断、3 安全定时器。 */
     bool battery;
-    uint8_t ntc;     /**< 保留 NTC_FAULT 原始编码，不能据此推断电池是否连接。 */
+    uint8_t ntc;     /**< REG0C NTC_FAULT 原始编码，表示 TS 状态；电池连接状态须单独检测。 */
 } bq25890_fault_t;
 
 /** @brief 完整成功才置 valid 的状态样本；失败输出清零。 */
@@ -55,8 +55,8 @@ typedef struct {
  * @param bus 板级总线，调用者保持其生命周期。
  * @param out_device 成功后归调用者持有；非 NULL 输出在失败时置 NULL。
  * @return ESP_OK、ESP_ERR_NOT_SUPPORTED（型号不符）或 I2C/资源错误。
- * @note 同一设备只注册一次；身份检查失败时尝试移除设备，但不检查移除结果，
- *       因而不能保证无设备资源遗留；仍返回身份检查错误。不写芯片配置。
+ * @note 同一设备只注册一次；身份检查失败时调用设备移除并返回身份检查错误。
+ *       移除结果被忽略，移除失败会遗留设备资源。初始化仅执行探测和寄存器读取。
  */
 esp_err_t bq25890_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *out_device);
 
@@ -68,9 +68,9 @@ esp_err_t bq25890_read_identity(i2c_master_dev_handle_t device, bq25890_identity
 
 /**
  * @brief 读取身份、REG0B 和两次 REG0C；完整成功才置 valid。
- * @return 任意一步失败则清空整个输出并返回错误，不返回上次成功数据。
+ * @return 任意一步失败则清空整个输出并返回错误。
  * @note 单任务轮询；REG0C 第一次读取消费锁存故障，第二次为当前故障
- *       （NTC 始终为当前值），失败也可能已经消费历史故障。无寄存器数据写入。
+ *       （NTC 始终为当前值），后续步骤失败时历史故障也可能已被消费。仅执行寄存器读取。
  */
 esp_err_t bq25890_read_status(i2c_master_dev_handle_t device, bq25890_status_t *status);
 
@@ -79,9 +79,9 @@ esp_err_t bq25890_read_status(i2c_master_dev_handle_t device, bq25890_status_t *
  * @param device 已注册的 BQ25890 句柄；与其他驱动调用在同一任务串行执行。
  * @return ESP_OK、ESP_ERR_INVALID_RESPONSE（回读不符）或身份/I2C 错误。
  * @note 保留 REG07 其他位，包括充电安全计时器；写入会进入主机模式。
- *       错误时也可能已写入，调用方须停止 ADC 并报告，不能假定硬件未改变。
- *       释放句柄或 ESP32 重启不会主动恢复看门狗；须显式重配或芯片 POR。
- *       无软件失联后的自动默认配置回退，不可作为正式充电策略。
+ *       写入阶段报错时芯片也可能已接受配置，调用方须停止 ADC 并报告。
+ *       看门狗保持关闭直至显式重配或芯片 POR，该状态跨句柄释放和 ESP32 重启持续。
+ *       关闭看门狗后软件失联时芯片继续使用现有配置；正式充电策略须另行实现失联处置。
  */
 esp_err_t bq25890_disable_watchdog_for_debug(i2c_master_dev_handle_t device);
 
@@ -89,9 +89,9 @@ esp_err_t bq25890_disable_watchdog_for_debug(i2c_master_dev_handle_t device);
  * @brief ADC 独占任务启动时停止复位遗留的连续转换，并回读确认。
  * @param device 已注册设备；调用者独占 ADC，与其他操作串行执行。
  * @return ESP_OK、ESP_ERR_INVALID_STATE（DPDM 正在执行）、回读或 I2C 错误。
- * @note 仅清 REG02 ADC 位，保留输入检测和其他配置；不重放 DPDM 命令。
- *       不要求异常的 CONV_START 清零；连续模式停止及其余配置必须回读一致。
- *       错误时硬件可能已改变，调用者须停止测试，不得当作恢复成功。
+ * @note 仅清 REG02 ADC 位，保留输入检测和其他配置；DPDM 忙时返回错误。
+ *       CONV_START 可保持置位；连续模式停止及其余配置必须回读一致。
+ *       写入阶段报错时硬件也可能已改变，调用者须停止测试并报告。
  */
 esp_err_t bq25890_prepare_adc(i2c_master_dev_handle_t device);
 
@@ -101,16 +101,16 @@ esp_err_t bq25890_prepare_adc(i2c_master_dev_handle_t device);
  * @param voltages 完整成功且停止连续模式回读成功才置 valid；失败清空全部字段。
  * @return ESP_OK、ESP_ERR_INVALID_STATE（无输入、连续模式/DPDM 忙或看门狗未关闭）、
  *         ESP_ERR_INVALID_RESPONSE 或身份/I2C 错误。
- * @note 调用前关闭并确认芯片 I2C 看门狗。本函数不喂狗，不修改充电参数。
- *       只写 REG02 ADC 位，保留其他控制位，不重放 DPDM 命令。
- *       按手册等待完整更新周期，不以连续转换中的 CONV_START 清零作为完成条件。
- *       I2C 失败时尽力关闭连续模式；清理失败报错，硬件可能仍转换，不能保证回滚。
- *       不负责判断电池是否存在，不读取电量/电流；USB 拔出时不得使用采样值。
+ * @note 调用前关闭并确认芯片 I2C 看门狗；窗口内保持看门狗关闭和充电参数原值。
+ *       只写 REG02 ADC 位，保留其他控制位；DPDM 忙时返回错误。
+ *       按手册等待完整更新周期；连续模式的完成判据为等待时长及状态检查。
+ *       I2C 失败后尝试关闭连续模式；清理失败返回清理错误，连续转换可能保持开启。
+ *       返回 VBUS/SYS 电压；电池连接、电量和电流须另行获取，USB 拔出时丢弃采样值。
  */
 esp_err_t bq25890_read_voltages(i2c_master_dev_handle_t device, bq25890_voltages_t *voltages);
 
 /**
- * @brief 移除本驱动设备，成功置 NULL；不会删除共享总线。
- * @note 先停止所有使用该句柄的读取，不得与读取并发调用。
+ * @brief 移除本驱动设备，成功置 NULL；共享总线仍由板级模块持有。
+ * @note 先停止所有使用该句柄的读取，再串行释放设备。
  */
 esp_err_t bq25890_deinit(i2c_master_dev_handle_t *device);

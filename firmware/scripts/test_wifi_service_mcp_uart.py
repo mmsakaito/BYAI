@@ -7,14 +7,14 @@ Protocol:
   - Send: one JSON-RPC request per line, terminated by '\\n'
   - Receive: one JSON-RPC response per line, terminated by '\\n'
   - Skip non-JSON log lines; the first line starting with '{' is used as the response.
-    Request IDs are sent but response IDs are not checked; use a dedicated UART client.
+    Responses are selected by line prefix rather than request ID; use exclusive UART access.
 
-Scope:
-  - Requires firmware exposing the Wi-Fi service MCP tools; discovery does not exercise every tool.
-  - The default checks also request selector re-evaluation, so they are not strictly read-only.
+Checks and device effects:
+  - Requires firmware exposing the Wi-Fi service MCP tools.
+  - Default checks list tools, read status/profiles and request selector re-evaluation.
   - --negative checks one invalid argument case.
   - --mutating adds and enables a random profile and requests provisioning start/stop.
-    The added profile is not deleted, and failures do not restore prior device state.
+    Added profiles remain on the device; restore prior device state manually after a run or failure.
 
 Usage:
     python3 scripts/test_wifi_service_mcp_uart.py <serial-port> [baud-rate]

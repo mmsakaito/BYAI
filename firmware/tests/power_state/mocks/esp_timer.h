@@ -1,5 +1,5 @@
 /** @file esp_timer.h
- * @brief 声明由状态机测试控制的微秒时钟，不使用真实运行时间。
+ * @brief 声明由状态机测试控制并显式推进的微秒时钟。
  */
 #pragma once
 

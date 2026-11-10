@@ -1,6 +1,6 @@
 /**
  * @file power_state_internal.h
- * @brief 启动者与唯一采集任务使用的状态发布接口，不供普通消费者写入。
+ * @brief 启动者与唯一采集任务使用的状态发布接口。
  */
 
 #pragma once
@@ -14,15 +14,15 @@
  *
  * @return 已有活动采集者时返回 ESP_ERR_INVALID_STATE，否则返回 ESP_OK。
  *
- * @note 清除历史状态；内部持短临界区，不可从 ISR 调用。不创建任务、不访问芯片。
- *       必须先退出旧任务再重新启动。
+ * @note 在任务上下文调用，短临界区内清除历史状态；任务及设备由调用者管理。
+ *       重新启动前须完成旧任务退出。
  */
 esp_err_t power_state_begin(bool adc_enabled);
 
 /**
  * @brief 唯一采集任务在每轮开始时记录尝试时间；不会延后无结果超时。
  *
- * @note 内部持短临界区；停止后忽略调用，不访问硬件，不可从 ISR 调用。
+ * @note 在任务上下文调用，内部持短临界区；停止后忽略调用，操作限于内存和时钟。
  */
 void power_state_record_attempt(void);
 
@@ -34,8 +34,8 @@ void power_state_record_attempt(void);
  *
  * @note ADC 开启时要求 sample->voltage_available；不合格结果按失败处理。
  *       ESP_OK 配合 NULL 或缺少所需电压的样本时，按 ESP_ERR_INVALID_ARG 累计失败。
- *       内部持短临界区，复制而不持有 sample；不可从 ISR 调用，无持久化行为。
- *       采集者必须在调用前结束全部 I2C；本模块不拥有硬件或线程生命周期。
+ *       在任务上下文调用，短临界区内复制 sample 至内部存储；采集者须在调用前结束全部 I2C。
+ *       设备、任务及持久化数据由调用者管理。
  */
 void power_state_publish(const power_state_sample_t *sample, esp_err_t error);
 
@@ -44,7 +44,7 @@ void power_state_publish(const power_state_sample_t *sample, esp_err_t error);
  *
  * @param error 严重错误码；误传 ESP_OK 时转为 ESP_ERR_INVALID_STATE。
  *
- * @note 内部持短临界区，不可从 ISR 调用。不释放硬件，不恢复看门狗，
- *       不增加采样失败次数；停止后仍可查询历史数据，不代表旧任务已完全退出。
+ * @note 在任务上下文调用，短临界区内更新状态及有效性，采样失败次数保持原值。
+ *       停止后仍可查询历史数据；设备释放、看门狗配置和实际任务退出由调用者负责。
  */
 void power_state_stop(esp_err_t error);

@@ -1,6 +1,6 @@
 /**
  * @file test_power_state.c
- * @brief 使用可控时钟和 pthread 锁检查电源状态机，不验证实板中断或调度时序。
+ * @brief 使用可控时钟和 pthread 锁检查电源状态机的状态转换与并发快照。
  */
 
 #include <assert.h>
@@ -13,7 +13,7 @@
 
 static atomic_int_fast64_t now_us;
 
-/** @brief 主机时钟替身；测试通过原子变量控制时间，不使用真实等待。 */
+/** @brief 主机时钟替身；测试通过原子变量显式推进时间。 */
 int64_t esp_timer_get_time(void)
 {
     return atomic_load(&now_us);
@@ -155,7 +155,7 @@ static void assert_timeout_from(power_state_id_t from)
     assert(s.reason == POWER_STATE_REASON_UPDATE_TIMEOUT && s.last_error == ESP_ERR_TIMEOUT);
     assert(s.consecutive_failures == before.consecutive_failures && s.task_running);
 
-    // 超时不伪造采样失败次数；后续失败不能解除 Q5，但成功可以。
+    // 超时保持采样失败计数；后续失败维持 Q5，完整成功恢复 Q3。
     publish_failure();
     assert(get().state == POWER_STATE_Q5_UNAVAILABLE);
     publish_ok(5200);
@@ -204,7 +204,7 @@ static void test_stop_restart_adc_disabled_and_copy(void)
     s = get();
     assert(s.state == POWER_STATE_Q3_READY && s.current_valid && !s.adc_enabled);
     assert(!s.data.voltage_available && s.data.vbus_mv == 0 && s.data.sys_mv == 0);
-    publish_ok(5100); // 即使错误传入电压，ADC 关闭时也不能冒充有效电压。
+    publish_ok(5100); // ADC 关闭时，传入电压仍归零并保持不可用。
     s = get();
     assert(!s.data.voltage_available && s.data.vbus_mv == 0);
 
@@ -243,7 +243,7 @@ static void *reader(void *arg)
     return NULL;
 }
 
-/** @brief 等待一写两读线程结束，再检查最终结果；模拟锁不代表实板时序。 */
+/** @brief 启动一写两读 pthread 线程，全部结束后检查最终结果。 */
 static void test_concurrent_snapshots(void)
 {
     begin(true);
@@ -258,7 +258,7 @@ static void test_concurrent_snapshots(void)
     assert(get().data.vbus_mv == 20000);
 }
 
-/** @brief 执行主机状态机检查，不链接 I2C 或创建真实硬件设备。 */
+/** @brief 执行由合成样本、可控时钟和 pthread 锁驱动的主机状态机检查。 */
 int main(void)
 {
     test_disabled_and_startup();

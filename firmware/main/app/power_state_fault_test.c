@@ -18,7 +18,7 @@
 
 static const char *TAG = "power_fault_test";
 
-/** @brief 合成标记值，绝不能当作芯片实际测量；正常采集任务在诊断模式不启动。 */
+/** @brief 由软件指定的合成标记值；诊断配置用注入任务替代正常采集任务。 */
 static power_state_sample_t synthetic_sample = {
     .identity_raw = 0x1f,
     .part_number = 3,
@@ -86,7 +86,7 @@ static void inject_result(esp_err_t error)
  *
  * @return 所有检查均满足时为 true；否则记录 FAIL 并返回 false。
  *
- * @note 仅调用公开快照读取，不执行硬件访问，不使用 assert 绕过失败报告。
+ * @note 通过公开接口读取快照，将失败作为返回值和日志报告。
  */
 static bool expect_state(const char *step,
     power_state_id_t expected,
@@ -103,13 +103,13 @@ static bool expect_state(const char *step,
         return false;
     }
 
-    // 状态、运行标志及数据有效性必须同时匹配，不能只凭 Q 编号判断通过。
+    // 同时核对状态、运行标志、数据存在性及有效性。
     bool ok = s.state == expected && s.consecutive_failures == failures && s.last_error == error &&
               s.reason == reason && s.task_running == running && s.has_data == has_data &&
               s.current_valid == (has_data && expected == POWER_STATE_Q3_READY) &&
               s.is_stale == (has_data && expected != POWER_STATE_Q3_READY);
     if (old != NULL) {
-        // 失败期间既不能覆盖旧数据，也不能伪造更近的完整成功时间。
+        // 失败期间应保留旧数据及其完整成功时间。
         ok = ok && s.last_success_us == old->last_success_us && same_sample(&s.data, &old->data);
     }
     ESP_LOGI(TAG,
@@ -133,7 +133,7 @@ static bool expect_state(const char *step,
 /**
  * @brief 校验成功后时间及数据均已更新，失败计数清零。
  *
- * @param step 测试步骤名，仅供本次日志使用。
+ * @param step 写入本次日志的测试步骤名。
  * @param old 恢复前的非 NULL 历史快照，不保存指针。
  *
  * @return 状态、有效性、时间及数据检查通过时为 true，否则记录失败。
@@ -211,7 +211,7 @@ static void timeout_observer(void *arg)
  */
 static bool test_failure_streaks(void)
 {
-    // 首先建立完整的合成历史快照；后续失败必须保留该数据，而不是读取硬件。
+    // 先建立完整的合成历史快照；后续失败应保留这份软件注入的数据。
     if (!expect_state("initial", POWER_STATE_Q2_INITIALIZING, 0, ESP_OK, POWER_STATE_REASON_NONE, true, false, NULL)) {
         return false;
     }
@@ -320,7 +320,7 @@ static bool test_update_timeout(void)
 }
 
 /**
- * @brief 只模拟软件生命周期，不创建/释放实际采集设备，不执行芯片初始化。
+ * @brief 通过状态接口模拟启动失败及软件生命周期，设备与寄存器保持原状。
  *
  * @return 严重错误立即停止、迟到结果被忽略的检查均通过时为 true。
  */
@@ -336,7 +336,7 @@ static bool test_startup_failure(void)
         return false;
     }
 
-    // 直接注入关键初始化校验错误，不故意制造真实寄存器或资源故障。
+    // 直接向状态机注入关键初始化校验错误，设备与寄存器保持原状。
     power_state_stop(ESP_ERR_INVALID_RESPONSE);
     if (!expect_state("startup_failure",
             POWER_STATE_Q5_UNAVAILABLE,
@@ -349,7 +349,7 @@ static bool test_startup_failure(void)
         return false;
     }
 
-    // 停止后迟到的成功发布必须被忽略，不能让已停止的任务看起来又恢复正常。
+    // 停止后忽略迟到的成功发布，保持任务停止及原错误状态。
     inject_result(ESP_OK);
     if (!expect_state("late_result_ignored",
             POWER_STATE_Q5_UNAVAILABLE,
@@ -370,13 +370,13 @@ void power_state_fault_test_task(void *arg)
     (void)arg;
 
     ESP_LOGW(TAG,
-        "DIAGNOSTIC ONLY synthetic=1; normal power collector disabled; NO BQ I2C; voltages are NOT measurements");
-    // 按顺序执行，首个失败即停止后续用例；不要用后续成功掩盖先前失败。
+        "synthetic=1 source=software normal_collector=disabled bq_i2c=disabled");
+    // 按顺序执行，首个失败即停止后续用例并保留套件失败结果。
     const bool passed = test_failure_streaks() && test_update_timeout() && test_startup_failure();
     if (!passed) {
         power_state_stop(ESP_FAIL);
     }
-    // 诊断任务退出后不会接替为真实采集，必须烧录关闭注入的正常固件。
+    // 套件结束后注入任务退出；恢复真实采集须关闭注入配置并烧录正常固件。
     ESP_LOGI(TAG,
         "synthetic=1 SUITE result=%s; diagnostic task stopping; flash normal firmware to resume sampling",
         passed ? "PASS" : "FAIL");
