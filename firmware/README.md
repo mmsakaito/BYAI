@@ -4,8 +4,12 @@
 
 ## CI 与构建产物
 
-[`Firmware CI`](../.github/workflows/firmware-ci.yml) 在目标为 `dev`、`main` 的 PR、
-这两个分支的推送及手动运行中，并行执行电源状态机主机测试与 ESP32-S3 固件构建。
+[`Firmware CI`](../.github/workflows/firmware-ci.yml) 在目标为 `dev`、`main` 的 PR
+和这两个分支的推送中按变更路径触发，并行执行电源状态机主机测试与 ESP32-S3 固件构建。
+仅修改 Markdown、`docs/`、Issue/PR 模板、许可证、Git 忽略规则、编辑器配置、根目录
+`LOGO.png`、`ENV.local.example` 或安装配置 `config.toml` 时跳过整个工作流。
+混合变更只要包含排除范围以外的文件就会运行；固件源码（含仅注释修改）、构建配置、
+依赖锁文件、分区表、固件资源、子模块版本及工作流仍会触发。手动运行不受路径过滤限制。
 固件使用固定 digest 的官方 ESP-IDF `v6.1` 容器，保留已跟踪的 `sdkconfig`、
 依赖锁文件和 LVGL 子模块版本；构建改变配置或锁文件时直接失败。
 容器启动后仅将本次 checkout 路径加入 Git 安全目录，并按容器内工作区路径定位 ccache。
