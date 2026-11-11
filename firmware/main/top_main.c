@@ -27,7 +27,7 @@ static const char *TAG = "bringup";
  */
 void app_main(void)
 {
-    // 彩条与 LVGL 独占屏幕，不能同时初始化 SPI 或向同一屏幕写入。
+    // 彩条与 LVGL 互斥启动，各自独占屏幕及 SPI 初始化。
 #if CONFIG_BYAI_LCD_COLOR_BARS_TEST
     if (xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create display/PSRAM task");

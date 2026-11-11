@@ -103,13 +103,13 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
           ## BYAI ESP32-S3 测试构建
 
-          本构建不能替代实板验收，保留仓库现有硬件调试配置。
+          本构建保留仓库现有硬件调试配置；实板验收按板卡、配置和实际现象记录。
           - `BYAI_firmware_<sha>.bin`：应用镜像，不含 bootloader 和分区表。
           - `BYAI_full_flash_<sha>.bin`：按本次 SDK flash_args 合并的镜像，不填满整个 Flash。
           - `BYAI_SHA256SUMS_<sha>.txt`：两个镜像的 SHA-256 校验文件。
 
-          整片合并镜像日后写入可能覆盖 NVS 所在空隙；使用前须确认设备和数据安全。
-          CI 不执行烧录、擦除、Release、标签推送或 OTA。
+          整片合并镜像覆盖 bootloader 至应用末尾的连续地址区间，烧录前备份该区间内的 NVS 数据。
+          CI 流程在产物上传和缓存保存后结束。
           SUMMARY
 
       - name: Upload firmware images

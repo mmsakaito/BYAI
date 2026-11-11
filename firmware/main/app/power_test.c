@@ -34,7 +34,7 @@ static const char *state_names[] = { "Q1", "Q2", "Q3", "Q4", "Q5" };
 /**
  * @brief 从统一快照输出状态与历史数据，不执行额外 I2C 读取。
  *
- * @note Q4 数据为旧值，Q5 历史值仅供诊断；不得把芯片充电编码解释为真实充满。
+ * @note Q4 以旧值标记显示，Q5 历史值用于诊断；charge 字段为芯片寄存器充电状态编码。
  */
 static void log_snapshot(void)
 {
@@ -43,7 +43,7 @@ static void log_snapshot(void)
         return;
     }
 
-    // 两条上层日志使用同一份副本，不能在输出电压时再读取另一轮状态。
+    // 两条上层日志使用同一份副本，使状态与电压对应同一轮数据。
     ESP_LOGI(TAG,
         "state=%s reason=%u running=%u adc_enabled=%u has_data=%u stale=%u current_valid=%u consecutive_failed=%" PRIu32
         " error=%s attempt_us=%" PRId64 " result_us=%" PRId64 " success_us=%" PRId64,
@@ -61,7 +61,7 @@ static void log_snapshot(void)
         state.last_success_us);
 
     if (state.has_data) {
-        // Q4/Q5 的历史值仅用于带标记显示或诊断，不能省略有效性和旧值标志。
+        // Q4/Q5 历史数据随有效性和旧值标志一起输出。
         const power_state_sample_t *data = &state.data;
         ESP_LOGI(TAG,
             "snapshot current_valid=%u stale=%u id=0x%02x PN=%u rev=%u input=%s charge=%s PG=%u VSYSMIN=%u "
@@ -93,7 +93,7 @@ static void log_snapshot(void)
  */
 static void stop_test(i2c_master_dev_handle_t *device, esp_err_t error)
 {
-    // 先向消费者发布停止原因，再尝试清理；清理失败不能把状态改成正常。
+    // 先发布停止原因，再尝试清理；清理失败时保留停止状态并记录错误。
     power_state_stop(error);
     log_snapshot();
 
@@ -142,7 +142,7 @@ void power_test_task(void *arg)
                     err = bq25890_prepare_adc(device);
                 }
                 if (err != ESP_OK) {
-                    // 关键配置校验失败立即停止，不能继续读数或盲目复写寄存器。
+                    // 关键配置校验失败时停止采集，发布 Q5 并尝试释放设备。
                     ESP_LOGE(TAG, "ADC startup setup failed: %s; stopping ADC test", esp_err_to_name(err));
                     stop_test(&device, err);
                     vTaskDelete(NULL);
@@ -175,7 +175,7 @@ void power_test_task(void *arg)
                 .fault_current_raw = status.current_fault.raw,
             };
 #if CONFIG_BYAI_POWER_ADC_TEST
-            // 启用 ADC 时，基础读取成功还不算完整成功；电压及收尾也必须成功。
+            // 启用 ADC 时，完整成功要求基础读取、电压读取及收尾全部成功。
             bq25890_voltages_t voltages;
             err = bq25890_read_voltages(device, &voltages);
             if (err == ESP_OK) {

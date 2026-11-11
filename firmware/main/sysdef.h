@@ -19,7 +19,7 @@
 #define PIN_I2C1_SCL GPIO_NUM_38
 #define PIN_I2C1_SDA GPIO_NUM_39
 #define PIN_BQ25890_INT GPIO_NUM_4
-/* 换算为 RTOS tick 后挂起当前任务，不保证精确毫秒延时。 */
+/* 将毫秒换算为 RTOS tick 后挂起当前任务；恢复执行时间随 tick 精度及任务调度变化。 */
 #define delay_ms(x) vTaskDelay(pdMS_TO_TICKS(x))
 
 /* 当前横屏逻辑尺寸，单位为像素。 */

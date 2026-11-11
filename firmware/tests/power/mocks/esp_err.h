@@ -1,5 +1,5 @@
 /** @file esp_err.h
- * @brief BQ25890 主机测试所需的 ESP-IDF 错误码子集，非完整 SDK 替代。
+ * @brief BQ25890 主机测试使用的 ESP-IDF 错误码子集。
  */
 #pragma once
 

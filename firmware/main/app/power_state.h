@@ -10,7 +10,7 @@
 
 #include "esp_err.h"
 
-/** @brief 数据可用性状态；Q3 不代表芯片故障字段均正常。 */
+/** @brief 数据可用性状态；芯片故障信息由样本的 fault 字段独立记录。 */
 typedef enum {
     POWER_STATE_Q1_DISABLED,     /**< 未启用，无采集任务。 */
     POWER_STATE_Q2_INITIALIZING, /**< 初始化并等待首次完整结果。 */
@@ -30,8 +30,8 @@ typedef enum {
 /**
  * @brief 最近一次完整成功的测量；字段编码沿用 BQ25890H 寄存器定义。
  *
- * @note 不推断电池存在、电量、真实充电或真实温度。voltage_available=false 时
- *       vbus_mv/sys_mv 为 0，不能把 0 解释为实际电压。
+ * @note charge_state 为寄存器充电状态编码；voltage_available=false 表示电压不可用，
+ *       此时 vbus_mv/sys_mv 的 0 为占位值。
  */
 typedef struct {
     uint8_t identity_raw;
@@ -55,8 +55,8 @@ typedef struct {
  * @brief 一致性快照，data 为自有副本，不包含设备句柄或借用指针。
  *
  * @note has_data 表示存在完整历史结果；仅 current_valid=true 时可作为当前数据。
- *       Q4/Q5 中历史 data 保留但 is_stale=true，Q5 中仅用于诊断。
- *       所有时间均为本次启动后的单调微秒，不是墙上时间；0 表示尚无该事件，
+ *       Q4/Q5 中历史 data 保留但 is_stale=true，Q5 历史值用于诊断。
+ *       所有时间均为本次启动后的单调微秒；0 表示尚无该事件，
  *       数据存在性仍以 has_data 为准。last_result_us 是最后结果或初始化起点。
  */
 typedef struct {
@@ -87,8 +87,8 @@ typedef struct {
  *
  * @return ESP_OK 或 ESP_ERR_INVALID_ARG；设备错误在快照 last_error 中表达。
  *
- * @note 可由多个任务查询；只在短临界区内读取/更新内存和单调时钟，不执行 I2C、
- *       等待、日志或硬件恢复。不能从 ISR 调用。Q5 仅完整成功或重新启动才能解除。
- *       功能未启动时返回 Q1，无寄存器访问、持久化或动态资源分配。
+ * @note 在任务上下文调用，多个任务可并发查询；短临界区内仅操作内存和单调时钟。
+ *       Q5 由完整成功或重新启动解除；设备访问与恢复由采集者负责。
+ *       功能启动前返回 Q1；查询使用调用者提供的存储。
  */
 esp_err_t power_state_get_snapshot(power_state_snapshot_t *out_snapshot);

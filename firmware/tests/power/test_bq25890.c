@@ -1,6 +1,6 @@
 /**
  * @file test_bq25890.c
- * @brief 主机 I2C 替身测试，覆盖状态解码、读失败和设备句柄清理，不验证实板通信。
+ * @brief 使用主机 I2C 替身检查状态解码、读失败和设备句柄清理。
  */
 #include <assert.h>
 #include <stdio.h>
@@ -55,7 +55,7 @@ esp_err_t i2c_master_transmit_receive(i2c_master_dev_handle_t device, const uint
                                     size_t tx_size, uint8_t *rx, size_t rx_size, int timeout)
 {
     assert(device == &token && reads < 4);
-    /* A register pointer only, never a register data write or a multi-read. */
+    /* Send one register address and receive one data byte per transaction. */
     assert(tx_size == 1 && rx_size == 1 && timeout == 100);
     assert(*tx == expected_regs[reads]);
     int index = reads++;
@@ -124,7 +124,7 @@ int main(void)
             assert(bq25890_read_status(&token, &status) == ESP_OK && status.valid);
         }
     }
-    /* 不支持的芯片身份及初始化各阶段失败时的资源清理。 */
+    /* 型号不匹配及初始化各阶段失败时的资源清理。 */
     reset_mock();
     values[0] = 0x00;
     memset(&status, 0xff, sizeof(status));
@@ -151,7 +151,7 @@ int main(void)
     assert(bq25890_init(&token, &device) == ESP_ERR_TIMEOUT);
     assert(device == NULL && added == 1 && removed == 1);
 
-    /* 删除失败保留句柄；无效参数不泄漏旧状态。 */
+    /* 删除失败保留句柄；无效参数使状态输出清零。 */
     reset_mock();
     device = &token;
     remove_error = ESP_ERR_TIMEOUT;
