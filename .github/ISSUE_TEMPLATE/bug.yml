@@ -6,7 +6,7 @@ body:
     id: problem
     attributes:
       label: 遇到了什么问题
-      description: 写实际现象和影响；尚未确认的原因不要当成结论。
+      description: 写实际现象和影响；待确认的原因列为排查线索。
       placeholder: 在……时出现……，影响……
     validations:
       required: true

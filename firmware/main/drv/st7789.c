@@ -13,7 +13,7 @@
 #include "sysdef.h"
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
-/* 当前复位接口为空，不产生硬件复位；D/C 由 GPIO 控制。 */
+/* 复位辅助函数体为空，面板复位由板级硬件处理；D/C 由 GPIO 控制。 */
 void LCD_RES_Clr() {
 
 }
@@ -32,7 +32,7 @@ void LCD_CS_Clr() {
 void LCD_CS_Set() {
 	gpio_set_level(PIN_SPI2_CS,1);
 }
-/* 当前背光接口为空，不改变背光状态。 */
+/* 背光辅助函数体为空，背光状态由板级硬件控制。 */
 void LCD_BLK_Clr() {
 
 }
@@ -65,7 +65,7 @@ void LCD_WR_REG(uint8_t dat)
 
 void LCD_Address_Set(uint16_t x1,uint16_t y1,uint16_t x2,uint16_t y2)
 {
-	/* 竖屏沿用 20 行偏移；方向 0 当前不发送 RAM 写命令。 */
+	/* 竖屏沿用 20 行偏移；方向 0 仅设置列、行地址，其他方向随后发送 RAM 写命令。 */
 	if(USE_HORIZONTAL==0)
 	{
 		LCD_WR_REG(0x2a);
@@ -118,7 +118,7 @@ void LCD_Init(void)
 	LCD_BLK_Set();
     delay_ms(500);
 
-	/* 沿用当前面板初始化参数；不据此推断实际电压或刷新率。 */
+	/* 以下为当前面板初始化寄存器序列。 */
 	LCD_WR_REG(0x11); // 退出休眠后等待面板稳定。
 	delay_ms(120);
 	LCD_WR_REG(0x36);

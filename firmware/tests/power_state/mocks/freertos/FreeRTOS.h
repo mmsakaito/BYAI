@@ -1,5 +1,5 @@
 /** @file FreeRTOS.h
- * @brief 用 pthread 互斥锁模拟状态机临界区，不模拟 FreeRTOS 中断屏蔽。
+ * @brief 将状态机临界区映射为 pthread 互斥锁的加锁和解锁。
  */
 #pragma once
 

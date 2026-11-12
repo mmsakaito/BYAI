@@ -1,4 +1,4 @@
-# 应用源文件显式列出，避免编入本地诊断文件；仅 LVGL 源码递归收集。
+# 应用仅编译下列显式列出的源文件；LVGL 源码递归收集。
 file(GLOB_RECURSE LVGL_C "lib/lvgl/src/*.c")
 
 idf_component_register(

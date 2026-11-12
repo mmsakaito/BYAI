@@ -2108,7 +2108,8 @@
  *  - LV_ALIGN_RIGHT_MID: Right middle
  *  - LV_ALIGN_CENTER
  */
-#define LV_USE_PERF_MONITOR_POS LV_ALIGN_RIGHT_MID
+/* 系统层性能浮窗固定右上角，为中部 VBUS/SYS 读数和电压条保留空间。 */
+#define LV_USE_PERF_MONITOR_POS LV_ALIGN_TOP_RIGHT
 
 /** Print the performance data to the log instead of showing the on-screen label. */
 #define LV_USE_PERF_MONITOR_LOG_MODE 0

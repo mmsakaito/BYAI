@@ -24,7 +24,7 @@ static power_state_snapshot_t snapshot = {
 /** @brief 持锁维护派生有效性，历史数据始终与最近完整成功时间一起保留。 */
 static void update_validity(void)
 {
-    // 有历史数据不代表当前可用：只有 Q3 可直接使用，其余状态必须标记旧值。
+    // 有历史数据且处于 Q3 时为当前有效值，其余状态中的历史数据标记为旧值。
     snapshot.current_valid = snapshot.has_data && snapshot.state == POWER_STATE_Q3_READY;
     snapshot.is_stale = snapshot.has_data && !snapshot.current_valid;
 }
@@ -90,7 +90,7 @@ void power_state_record_attempt(void)
     if (snapshot.task_running) {
         const int64_t now = esp_timer_get_time();
 
-        // 开始尝试不等于得到结果，因此不能刷新 last_result_us 来推迟超时。
+        // 尝试仅更新 last_attempt_us；无结果超时仍以 last_result_us 为起点。
         check_timeout(now);
         snapshot.last_attempt_us = now;
     }
@@ -101,7 +101,7 @@ void power_state_publish(const power_state_sample_t *sample, esp_err_t error)
 {
     portENTER_CRITICAL(&state_lock);
     if (!snapshot.task_running) {
-        // 停止后到达的结果不能把严重错误误恢复为 Q3，也不能覆盖历史数据。
+        // 停止后忽略迟到结果，保留停止原因及历史数据。
         portEXIT_CRITICAL(&state_lock);
         return;
     }
@@ -111,7 +111,7 @@ void power_state_publish(const power_state_sample_t *sample, esp_err_t error)
     // 先检查旧结果是否已超时，再记录新结果；迟到失败也必须保持 Q5 锁存。
     check_timeout(now);
 
-    // 将调用者误报的“不完整成功”转为一次失败，避免绕过完整快照契约。
+    // 缺少必需字段的成功发布按 ESP_ERR_INVALID_ARG 计为一次失败。
     if (error == ESP_OK && (sample == NULL || (snapshot.adc_enabled && !sample->voltage_available))) {
         error = ESP_ERR_INVALID_ARG;
     }
@@ -124,7 +124,7 @@ void power_state_publish(const power_state_sample_t *sample, esp_err_t error)
         snapshot.data = *sample;
 
         if (!snapshot.adc_enabled) {
-            // 未启用 ADC 时，调用者即使传入电压也不能把它冒充实际测量。
+            // ADC 关闭时，将电压标记为不可用，数值统一置为占位值 0。
             snapshot.data.voltage_available = false;
             snapshot.data.vbus_mv = 0;
             snapshot.data.sys_mv = 0;
@@ -141,7 +141,7 @@ void power_state_publish(const power_state_sample_t *sample, esp_err_t error)
             ++snapshot.consecutive_failures;
         }
 
-        // 已进入 Q5 后，新的失败不能退回 Q4；只能由完整成功解除不可用。
+        // Q5 在连续失败期间保持锁存，下一次完整成功时恢复。
         if (snapshot.state == POWER_STATE_Q5_UNAVAILABLE ||
             snapshot.consecutive_failures >= POWER_STATE_FAILURE_LIMIT) {
             snapshot.state = POWER_STATE_Q5_UNAVAILABLE;
