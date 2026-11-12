@@ -53,4 +53,32 @@ menu "BYAI hardware tests"
             or exercise real I2C failure recovery. Logs pass/fail and then stops.
             Disable and flash the normal firmware after diagnostics.
 
+    config BYAI_AUDIO_SINE_TEST
+        bool "Enable WM8978 1 kHz sine-wave headphone output"
+        default n
+        help
+            Plays a locally generated 1 kHz sine wave through the WM8978
+            headphone outputs (LOUT1/ROUT1). The sample data is produced on
+            the ESP32-S3: no stored audio file, no microphone capture and no
+            recording buffer. Format is 48 kHz / 16-bit / stereo, and the tone
+            is 48 samples per period, so the transmit buffer holds whole
+            periods only (20 periods, 3840 bytes) and the wrap point has no
+            phase discontinuity.
+
+            WM8978 is configured over the shared board I2C bus (GPIO38/39) at
+            7-bit address 0x1A; MODE must be strapped low for 2-wire control.
+            Codec registers are written before I2S is enabled, because the
+            opposite order leaves the control port unresponsive. I2S uses
+            MCLK=GPIO17 (256*fs = 12.288 MHz), BCLK=GPIO6, WS=GPIO7 and
+            DACDAT=GPIO16; ADCDAT is not driven in this TX-only path.
+
+            Enabling this takes precedence over the display and power tests:
+            app_main skips SPI/display init and the power collector so the
+            audio task owns the I2C bus alone. Disable the BYAI power options
+            when using it, since they would otherwise contend for the bus.
+
+            Diagnostic only. A successful write sequence does not prove
+            audible output; MCLK/BCLK/WS and the analog path still need
+            hardware measurement.
+
 endmenu
