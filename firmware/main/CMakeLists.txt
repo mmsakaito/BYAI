@@ -14,6 +14,7 @@ idf_component_register(
         "app/power_test.c"
         "app/power_state.c"
         "app/power_state_fault_test.c"
+        "app/wm8978_playback.c"
         ${LVGL_C}
     INCLUDE_DIRS
         "."
@@ -23,6 +24,7 @@ idf_component_register(
         "lib/lvgl/src"
     REQUIRES
         esp_driver_i2c
+        esp_driver_i2s
         esp_driver_spi
         esp_driver_gpio
         esp_timer
