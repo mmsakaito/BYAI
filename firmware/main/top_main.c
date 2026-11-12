@@ -1,6 +1,6 @@
 /**
  * @file top_main.c
- * @brief 启动互斥的彩条或 LVGL 显示，以及正常电源采集或软件注入任务。
+ * @brief 按配置启动上板测试：WM8978 正弦波输出，或彩条/LVGL 显示配合电源采集。
  *
  * @details ESP-IDF 已启动调度器；任务创建后 app_main 返回。
  *          任务创建失败只记录错误，不重启设备或修改持久化数据。
@@ -18,7 +18,13 @@
 #include "power_test.h"
 #include "sysdef.h"
 
+#if CONFIG_BYAI_AUDIO_SINE_TEST
+#include "wm8978_playback.h"
+#endif
+
+#if !CONFIG_BYAI_AUDIO_SINE_TEST
 static const char *TAG = "bringup";
+#endif
 
 /**
  * @brief 启动板级测试任务；ESP-IDF 已启动调度器，app_main 可直接返回。
@@ -27,7 +33,19 @@ static const char *TAG = "bringup";
  */
 void app_main(void)
 {
+ feat/audio-output
+#if CONFIG_BYAI_AUDIO_SINE_TEST
+    /* 正弦波测试独占共享 I2C 与 I2S：跳过显示初始化和电源采集，避免电源
+     * 任务在同一总线上并发访问 codec。成功后日志依次是：寄存器写入完成 ->
+     * I2S 参数 -> 开始循环播放。 */
+    if (wm8978_i2c_init() == ESP_OK) {
+        (void)wm8978_playback_start();
+    }
+#else
+   
+
     // 彩条与 LVGL 互斥启动，各自独占屏幕及 SPI 初始化。
+ dev
 #if CONFIG_BYAI_LCD_COLOR_BARS_TEST
     if (xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create display/PSRAM task");
@@ -67,4 +85,5 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to create power test task");
     }
 #endif
+#endif /* CONFIG_BYAI_AUDIO_SINE_TEST */
 }
