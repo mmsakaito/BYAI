@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BYAI 固件升级</title>
+<style>
+:root{color-scheme:light dark;font:16px/1.6 system-ui,sans-serif}body{max-width:760px;margin:40px auto;padding:0 20px}h1{font-size:1.7rem}section{border:1px solid #8886;border-radius:10px;padding:20px;margin:20px 0}dl{display:grid;grid-template-columns:9em 1fr;gap:8px}dt{opacity:.7}dd{margin:0;overflow-wrap:anywhere}code{font-size:.85rem}label{display:block;margin-bottom:12px}button,input{font:inherit;max-width:100%}button{padding:8px 18px;cursor:pointer}button:disabled{cursor:default}progress{width:100%;height:20px}small{display:block;opacity:.75}.result{white-space:pre-wrap;overflow-wrap:anywhere}#connection{font-size:.9rem} @media(max-width:520px){body{margin:20px auto}dl{grid-template-columns:1fr;gap:2px}dd{margin-bottom:8px}}
+</style>
+</head>
+<body>
+<h1>BYAI 固件升级</h1>
+<p id="connection" role="status">正在连接设备…</p>
+<section aria-labelledby="device-title">
+<h2 id="device-title">当前设备</h2>
+<dl>
+<dt>运行版本</dt><dd id="version">--</dd>
+<dt>运行镜像摘要</dt><dd><code id="digest">--</code></dd>
+<dt>运行 / 备用分区</dt><dd id="partitions">--</dd>
+<dt>镜像容量上限</dt><dd id="capacity">--</dd>
+<dt>首启回退</dt><dd id="rollback">--</dd>
+<dt>本次启动</dt><dd id="boot">--</dd>
+<dt>设备状态</dt><dd id="state">--</dd>
+</dl>
+<p id="device-message"></p>
+</section>
+<section aria-labelledby="upload-title">
+<h2 id="upload-title">上传应用镜像</h2>
+<p>选择兼容 ESP32-S3 的 BYAI 应用 .bin。支持旧版和同版本重装。升级期间保持设备供电。</p>
+<label>应用 .bin 文件 <input id="file" type="file" accept=".bin,application/octet-stream" disabled></label>
+<button id="upload" type="button" disabled>上传并升级</button>
+<p id="transfer-label">浏览器传输：0%</p><progress id="transfer" max="100" value="0" aria-labelledby="transfer-label"></progress>
+<p id="device-progress-label">设备接收 / 写入：0 / 0 字节（0%）</p><progress id="device-progress" max="100" value="0" aria-labelledby="device-progress-label"></progress>
+<small>传输达到 100% 后，设备仍须完成镜像校验、重启和首启确认。</small>
+<p id="result" class="result" role="status" aria-live="polite">等待设备状态。</p>
+<button id="query" type="button">立即查询</button>
+</section>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const storageKey = 'byai-ota-pending';
+const activeStates = new Set(['receiving', 'verifying', 'rebooting']);
+const stateNames = {idle:'空闲',receiving:'接收 / 写入中',verifying:'校验中',rebooting:'等待重启',failed:'失败'};
+let current = null, connected = false, uploading = false, polling = false, pending = null;
+try {
+    pending = JSON.parse(sessionStorage.getItem(storageKey));
+    if (pending && (typeof pending.oldBoot !== 'string' || !/^[0-9a-f]{64}$/.test(pending.targetSha) ||
+        !/^[0-9a-f]{64}$/.test(pending.oldSha) || !Number.isFinite(pending.started))) {
+        pending = null;
+        sessionStorage.removeItem(storageKey);
+    }
+} catch (_) {
+    pending = null;
+}
+function savePending() {
+    if (pending) sessionStorage.setItem(storageKey, JSON.stringify(pending));
+    else sessionStorage.removeItem(storageKey);
+}
+function showResult(message) { $('result').textContent = message; }
+function updateControls() {
+    const disabled = !connected || !current || !current.boot_confirmed || !current.max_image_size ||
+        activeStates.has(current.state) || uploading || !!pending;
+    $('file').disabled = disabled;
+    $('upload').disabled = disabled || !$('file').files.length;
+}
+function waitForResult() {
+    if (pending && !pending.waitSince) {
+        pending.waitSince = Date.now();
+        savePending();
+    }
+}
+function reconcile(status) {
+    if (!pending) return;
+    if (status.boot_id !== pending.oldBoot) {
+        if (!status.boot_confirmed) {
+            waitForResult();
+            showResult(Date.now() - pending.waitSince >= 60000 ?
+                '结果待确认：设备已重启，但尚未完成首启确认。页面继续查询。' :
+                '设备已重启，正在等待首启确认。');
+            return;
+        }
+        if (status.current_elf_sha256 === pending.targetSha) {
+            showResult(`升级成功：${status.current_version}。新启动已确认，运行镜像摘要与目标一致。`);
+        } else if (status.current_elf_sha256 === pending.oldSha) {
+            showResult(`升级未生效/已回退。实际运行版本：${status.current_version}。`);
+        } else {
+            showResult(`运行镜像与所选目标不一致。实际版本：${status.current_version}，摘要：${status.current_elf_sha256}。`);
+        }
+        pending = null;
+        savePending();
+        return;
+    }
+    if (activeStates.has(status.state) && status.source === 'local' &&
+        status.total_bytes === pending.size && (!status.target_elf_sha256 || status.target_elf_sha256 === pending.targetSha)) {
+        pending.observed = true;
+        savePending();
+        if (status.state === 'rebooting') {
+            waitForResult();
+            showResult('镜像已提交，等待设备重启并核对实际运行摘要。');
+        } else {
+            showResult(status.state === 'verifying' ? '正在校验完整镜像，尚未确认升级结果。' : '设备正在接收并写入镜像。');
+        }
+    } else if (status.state === 'failed' && pending.observed && !uploading) {
+        showResult(`${status.message}：${status.error}。可重新选择镜像上传。`);
+        pending = null;
+        savePending();
+        return;
+    }
+    if (!uploading && pending && pending.waitSince && Date.now() - pending.waitSince >= 60000) {
+        showResult('结果待确认：60 秒内未确认目标镜像运行。页面继续查询，也可点击“立即查询”；请核对设备供电和网络。');
+    }
+}
+function render(status) {
+    current = status;
+    $('version').textContent = status.current_version;
+    $('digest').textContent = status.current_elf_sha256;
+    $('partitions').textContent = `${status.running_partition || '--'} / ${status.update_partition || '无备用槽，需迁移'}`;
+    $('capacity').textContent = `${status.max_image_size.toLocaleString()} 字节`;
+    $('rollback').textContent = status.rollback_enabled ? '已启用' : '未启用';
+    $('boot').textContent = `${status.boot_id}（${status.boot_confirmed ? '已确认' : '待确认'}）`;
+    $('state').textContent = stateNames[status.state] || status.state;
+    $('device-message').textContent = status.message + (status.error ? `：${status.error}` : '');
+    $('device-progress').value = status.percent;
+    $('device-progress-label').textContent = `设备接收 / 写入：${status.received_bytes.toLocaleString()} / ${status.total_bytes.toLocaleString()} 字节（${status.percent}%）`;
+    reconcile(status);
+    updateControls();
+}
+async function poll() {
+    if (polling) return;
+    polling = true;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+        const response = await fetch('/api/ota/status', {cache:'no-store', signal:controller.signal});
+        if (!response.ok) throw Error(`HTTP ${response.status}`);
+        const status = await response.json();
+        connected = true;
+        $('connection').textContent = status.network_ready ? '设备在线，Wi-Fi 已取得 IP。' : '设备可访问，网络就绪状态正在更新。';
+        render(status);
+    } catch (_) {
+        connected = false;
+        $('connection').textContent = '设备暂不可达，正在继续查询。';
+        if (pending && !uploading) {
+            waitForResult();
+            showResult(Date.now() - pending.waitSince >= 60000 ? '结果待确认：60 秒内设备未恢复。页面继续查询，请核对供电和网络。' : '连接中断，升级结果待设备恢复后核对。');
+        }
+        updateControls();
+    } finally {
+        clearTimeout(timer);
+        polling = false;
+    }
+}
+async function upload() {
+    const file = $('file').files[0];
+    if (!file || !current || uploading || pending || activeStates.has(current.state)) return;
+    if (!file.name.toLowerCase().endsWith('.bin') || file.size < 288) {
+        showResult('请选择至少 288 字节的应用 .bin 文件。');
+        return;
+    }
+    if (file.size > current.max_image_size) {
+        showResult(`文件超过备用分区 ${current.max_image_size.toLocaleString()} 字节容量。`);
+        return;
+    }
+    uploading = true;
+    updateControls();
+    try {
+        const prefix = await file.slice(0, 288).arrayBuffer();
+        const targetSha = Array.from(new Uint8Array(prefix, 176, 32), byte => byte.toString(16).padStart(2, '0')).join('');
+        const versionBytes = new Uint8Array(prefix, 48, 32);
+        const terminator = versionBytes.indexOf(0);
+        const targetVersion = new TextDecoder().decode(versionBytes.subarray(0, terminator < 0 ? 32 : terminator));
+        pending = {oldBoot:current.boot_id, oldSha:current.current_elf_sha256, targetSha, targetVersion,
+            size:file.size, started:Date.now(), waitSince:0, observed:false};
+        savePending();
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/ota/upload');
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = event => {
+            const percent = event.lengthComputable ? Math.floor(event.loaded * 100 / event.total) : 0;
+            $('transfer').value = percent;
+            $('transfer-label').textContent = `浏览器传输：${percent}%`;
+        };
+        const transaction = pending;
+        xhr.onload = () => {
+            if (pending !== transaction) return;
+            let body = null;
+            try { body = JSON.parse(xhr.responseText); } catch (_) {}
+            if (xhr.status === 200 || (body && body.state === 'rebooting')) {
+                waitForResult();
+                showResult('上传响应已收到，等待重启后的运行镜像确认。');
+            } else if ((xhr.status >= 400 && xhr.status < 500) || xhr.status === 503 ||
+                       (body && body.state === 'failed')) {
+                pending = null;
+                savePending();
+                showResult(body ? `${body.message}：${body.error}` : `上传被拒绝：HTTP ${xhr.status}`);
+            } else {
+                waitForResult();
+                showResult('上传响应无法确认提交结果，继续查询实际运行镜像。');
+            }
+        };
+        xhr.onerror = xhr.ontimeout = xhr.onabort = () => {
+            if (pending !== transaction) return;
+            waitForResult();
+            showResult('上传连接中断，继续查询实际结果。');
+        };
+        xhr.onloadend = () => {
+            uploading = false;
+            updateControls();
+            poll();
+        };
+        $('transfer').value = 0;
+        $('transfer-label').textContent = '浏览器传输：0%';
+        showResult(`正在上传 ${file.name}，目标版本：${targetVersion || '--'}。`);
+        xhr.send(file);
+    } catch (_) {
+        pending = null;
+        uploading = false;
+        showResult('无法读取文件或保存升级身份，请检查文件和浏览器会话存储后重试。');
+        updateControls();
+    }
+}
+$('file').addEventListener('change', updateControls);
+$('upload').addEventListener('click', upload);
+$('query').addEventListener('click', poll);
+if (pending) {
+    waitForResult();
+    showResult('已恢复上次升级的身份信息，正在核对实际运行结果。');
+} else showResult('连接成功并完成本地启动确认后，可选择应用镜像。');
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>
