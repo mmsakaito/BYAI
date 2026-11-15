@@ -14,9 +14,8 @@ idf_component_register(
         "app/power_test.c"
         "app/power_state.c"
         "app/power_state_fault_test.c"
-        "app/byai_network.c"
-        "app/byai_ota.c"
-        "app/byai_ota_http.c"
+        "app/network.c"
+        "app/ota.c"
         ${LVGL_C}
     INCLUDE_DIRS
         "."
@@ -39,7 +38,7 @@ idf_component_register(
         app_update
         esp_http_server
         espressif__cjson
-    EMBED_TXTFILES "app/ota_web.html"
+    EMBED_TXTFILES "web/ota_web.html"
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE

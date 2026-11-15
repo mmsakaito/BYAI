@@ -1,6 +1,9 @@
-#include "byai_network.h"
+#include <stdbool.h>
 
 #include <string.h>
+
+#include "esp_err.h"
+#include "sdkconfig.h"
 
 #include "adf_event_hub.h"
 #include "esp_config_storage.h"
@@ -11,12 +14,6 @@
 #include "esp_wifi_service.h"
 #include "esp_wifi_service_profile_mgr.h"
 #include "nvs_flash.h"
-
-#if defined(__has_include)
-#if __has_include("wifi.local.h")
-#include "wifi.local.h"
-#endif
-#endif
 
 static const char *TAG = "byai_network";
 
@@ -80,52 +77,55 @@ static void network_event_handler(const adf_event_t *event, void *ctx)
 /** @brief 使用本地目标网络；只更新对应 SSID，保留其他已存 profile。 */
 static esp_err_t connect_if_unconfigured(void)
 {
-#if defined(BYAI_TEST_WIFI_SSID) && defined(BYAI_TEST_WIFI_PASSWORD)
-    char ssid[ESP_WIFI_SERVICE_PROFILE_SSID_MAX_LEN + 1];
-    char password[ESP_WIFI_SERVICE_PROFILE_PASS_MAX_LEN + 1];
-    const size_t ssid_len = strlen(BYAI_TEST_WIFI_SSID);
-    const size_t password_len = strlen(BYAI_TEST_WIFI_PASSWORD);
-    if (ssid_len == 0 || ssid_len > ESP_WIFI_SERVICE_PROFILE_SSID_MAX_LEN ||
-        password_len > ESP_WIFI_SERVICE_PROFILE_PASS_MAX_LEN) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    memcpy(ssid, BYAI_TEST_WIFI_SSID, ssid_len + 1);
-    memcpy(password, BYAI_TEST_WIFI_PASSWORD, password_len + 1);
-    esp_wifi_service_profile_t saved_profile = {0};
-    esp_err_t err = esp_wifi_service_profile_mgr_get(s_network.manager, ssid, &saved_profile);
-    uint8_t priority = 0;
-    bool request_connection = true;
-    if (err == ESP_OK) {
-        priority = saved_profile.priority;
-        const bool password_matches = strcmp(saved_profile.password, password) == 0;
-        char last_working[ESP_WIFI_SERVICE_PROFILE_SSID_MAX_LEN + 1] = {0};
-        esp_err_t last_err = esp_wifi_service_profile_mgr_get_last_working(
-            s_network.manager, last_working, sizeof(last_working));
-        if (last_err != ESP_OK && last_err != ESP_ERR_NOT_FOUND) {
-            err = last_err;
-        } else {
-            request_connection = !password_matches || last_err != ESP_OK ||
-                                 strcmp(last_working, ssid) != 0;
+    const char *configured_ssid = CONFIG_BYAI_WIFI_SSID;
+    if (configured_ssid[0] != '\0') {
+        const char *configured_password = CONFIG_BYAI_WIFI_PASSWORD;
+        char ssid[ESP_WIFI_SERVICE_PROFILE_SSID_MAX_LEN + 1];
+        char password[ESP_WIFI_SERVICE_PROFILE_PASS_MAX_LEN + 1];
+        const size_t ssid_len = strlen(configured_ssid);
+        const size_t password_len = strlen(configured_password);
+        if (ssid_len > ESP_WIFI_SERVICE_PROFILE_SSID_MAX_LEN ||
+            password_len > ESP_WIFI_SERVICE_PROFILE_PASS_MAX_LEN) {
+            return ESP_ERR_INVALID_ARG;
         }
-    } else if (err == ESP_ERR_NOT_FOUND) {
-        err = ESP_OK;
+
+        memcpy(ssid, configured_ssid, ssid_len + 1);
+        memcpy(password, configured_password, password_len + 1);
+        esp_wifi_service_profile_t saved_profile = {0};
+        esp_err_t err = esp_wifi_service_profile_mgr_get(s_network.manager, ssid, &saved_profile);
+        uint8_t priority = 0;
+        bool request_connection = true;
+        if (err == ESP_OK) {
+            priority = saved_profile.priority;
+            const bool password_matches = strcmp(saved_profile.password, password) == 0;
+            char last_working[ESP_WIFI_SERVICE_PROFILE_SSID_MAX_LEN + 1] = {0};
+            esp_err_t last_err = esp_wifi_service_profile_mgr_get_last_working(
+                s_network.manager, last_working, sizeof(last_working));
+            if (last_err != ESP_OK && last_err != ESP_ERR_NOT_FOUND) {
+                err = last_err;
+            } else {
+                request_connection = !password_matches || last_err != ESP_OK ||
+                                     strcmp(last_working, ssid) != 0;
+            }
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            err = ESP_OK;
+        }
+
+        if (err == ESP_OK && request_connection) {
+            err = esp_wifi_service_request_connect(s_network.service, ssid, password, priority, 0);
+        }
+
+        volatile unsigned char *password_wipe = (volatile unsigned char *)password;
+        for (size_t i = 0; i < sizeof(password); ++i) {
+            password_wipe[i] = 0;
+        }
+        volatile unsigned char *saved_password_wipe = (volatile unsigned char *)saved_profile.password;
+        for (size_t i = 0; i < sizeof(saved_profile.password); ++i) {
+            saved_password_wipe[i] = 0;
+        }
+        return err;
     }
 
-    if (err == ESP_OK && request_connection) {
-        err = esp_wifi_service_request_connect(s_network.service, ssid, password, priority, 0);
-    }
-
-    volatile unsigned char *password_wipe = (volatile unsigned char *)password;
-    for (size_t i = 0; i < sizeof(password); ++i) {
-        password_wipe[i] = 0;
-    }
-    volatile unsigned char *saved_password_wipe = (volatile unsigned char *)saved_profile.password;
-    for (size_t i = 0; i < sizeof(saved_profile.password); ++i) {
-        saved_password_wipe[i] = 0;
-    }
-    return err;
-#else
     uint8_t count = 0;
     esp_err_t err = esp_wifi_service_profile_mgr_count(s_network.manager, &count);
     if (err != ESP_OK) {
@@ -135,7 +135,6 @@ static esp_err_t connect_if_unconfigured(void)
         ESP_LOGI(TAG, "Wi-Fi unconfigured");
     }
     return ESP_OK;
-#endif
 }
 
 /**

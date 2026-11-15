@@ -9,3 +9,7 @@ Thumbs.db
 
 # Per-machine ESP-IDF environment paths
 /ENV.local
+
+# Local Wi-Fi credentials
+/firmware/sdkconfig.local
+/firmware/main/app/wifi.local.h

@@ -977,6 +977,15 @@ CONFIG_BYAI_POWER_ADC_TEST=y
 # end of BYAI hardware tests
 
 #
+# BYAI Wi-Fi configuration
+#
+# default:
+CONFIG_BYAI_WIFI_SSID=""
+# default:
+CONFIG_BYAI_WIFI_PASSWORD=""
+# end of BYAI Wi-Fi configuration
+
+#
 # Compiler options
 #
 # default:

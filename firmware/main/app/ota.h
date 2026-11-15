@@ -8,6 +8,29 @@
 extern "C" {
 #endif
 
+/** @brief OTA 事务阶段；空闲时不显示升级面板。 */
+typedef enum {
+    BYAI_OTA_IDLE,
+    BYAI_OTA_RECEIVING,
+    BYAI_OTA_VERIFYING,
+    BYAI_OTA_REBOOTING,
+    BYAI_OTA_FAILED,
+} byai_ota_state_t;
+
+typedef struct {
+    byai_ota_state_t state;
+    unsigned percent;
+} byai_ota_display_status_t;
+
+/**
+ * @brief 复制供显示使用的 OTA 阶段和设备接收进度。
+ *
+ * 可从任意任务调用；只在临界区内复制数值，不调用 LVGL 或执行 I/O。
+ * @param status 调用者提供的输出缓冲；不能为 NULL。
+ * @return 初始化成功且输出有效时返回 true，否则返回 false。
+ */
+bool byai_ota_get_display_status(byai_ota_display_status_t *status);
+
 /**
  * @brief 初始化唯一 OTA worker、事务队列和常驻 HTTP 服务。
  *

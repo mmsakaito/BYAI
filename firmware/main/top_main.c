@@ -8,6 +8,9 @@
  * @copyright (c) 2026 BYAI. All rights reserved.
  */
 
+#include <stdbool.h>
+
+#include "esp_err.h"
 #include "esp_log.h"
 
 #include "kernel.h"
@@ -17,10 +20,11 @@
 #include "power_state_internal.h"
 #include "power_test.h"
 #include "sysdef.h"
-#include "byai_network.h"
-#include "byai_ota.h"
+#include "ota.h"
 
 static const char *TAG = "bringup";
+
+esp_err_t byai_network_start(void (*on_ready)(bool ready));
 
 /**
  * @brief 初始化网络及 OTA，保留板级测试路径，最后确认待验证镜像。
@@ -54,6 +58,7 @@ void app_main(void)
         ESP_LOGE(TAG, "SPI initialization failed; LVGL not started");
     }
 #endif
+
 #if CONFIG_BYAI_POWER_BASIC_TEST
 #if CONFIG_BYAI_POWER_ADC_TEST
     const bool adc_enabled = true;

@@ -71,17 +71,27 @@ CI 使用仓库 checkout 和公开依赖，生成保留当前硬件调试配置�
 
 ## Wi-Fi 生命周期
 
-`app/byai_network.c` 持有唯一网络服务，在 `byai_wifi` namespace 的 `prof_p`/`prof_b`
-保存最多八份 profile。NVS 初始化错误直接返回，不自动擦除。本机存在私有
-`main/app/wifi.local.h` 时，按配置 SSID 查询 profile：不存在则添加并连接；已存在时
-保留其 priority，仅在密码不同或它不是 last-working profile 时更新/启用并直接连接。
-只修改目标 SSID，其他 profile 保留。私有文件不提交；未配置本地目标时复用已存 profile，
-没有 profile 时记录 `Wi-Fi unconfigured` 并保持离线。首次实板运行须授权使用凭据并写入
-设备 NVS。本入口不启动 SoftAP、蓝牙、串口 CLI 或 MCP 配网。
+`app/network.c` 是唯一 Wi-Fi 实现，负责启动 `esp_wifi_service`、profile manager 和网络事件回调。
+配置菜单 `BYAI Wi-Fi configuration` 提供 `CONFIG_BYAI_WIFI_SSID` 与
+`CONFIG_BYAI_WIFI_PASSWORD`。tracked `sdkconfig` 的默认值为空：SSID 为空时复用现有 profile；
+SSID 非空时只添加或更新该 SSID，保留其他 profile 和现有 priority。profile manager 使用
+`byai_wifi` namespace 的 `prof_p`/`prof_b` 保存最多八份 profile，NVS 初始化错误直接返回，
+不会自动擦除。GOT_IP 发布网络就绪，断开或丢失 IP 时撤销就绪状态；没有配置且没有已存 profile
+时记录 `Wi-Fi unconfigured` 并保持离线。
 
-GOT_IP 才发布网络就绪并记录 IP；断开或丢失 IP 时撤销就绪状态。
-网络初始化成功不要求路由器或互联网可达。应用源文件由 `main/CMakeLists.txt`
-显式列出，既有本地 `wifi_test.*` 不参与编译。上游组件许可见 [LICENSE](./LICENSE)。
+本机凭据放在忽略的 `sdkconfig.local`，不要写入 tracked `sdkconfig`。在已激活的 `firmware/`
+目录中，仅当文件不存在时复制默认配置，再通过独立构建目录设置并构建：
+
+```sh
+if [ ! -f sdkconfig.local ]; then cp sdkconfig sdkconfig.local; fi
+"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -B build-local-wifi -D SDKCONFIG=sdkconfig.local menuconfig
+"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -B build-local-wifi -D SDKCONFIG=sdkconfig.local -DPROJECT_VER=local-wifi build
+```
+
+Kconfig 字符串会编入固件镜像；profile manager 也会将凭据保存到 Flash 中的 NVS。
+当前 profile storage 使用 `crypto=NULL`，不承诺镜像或 NVS 内容加密。代码不读取旧的本地
+`wifi.local.h`；该文件保持原状且被 Git 忽略。唯一调用方在 `top_main.c` 声明网络启动原型；
+旧 Wi-Fi 测试入口不参与构建。
 
 ## 局域网网页 OTA
 
@@ -89,6 +99,10 @@ GOT_IP 才发布网络就绪并记录 IP；断开或丢失 IP 时撤销就绪状
 无需 CDN；选择带附加 SHA-256 的 BYAI ESP32-S3 应用 `.bin`，不要选择合并镜像。
 允许主动安装旧版或同版本。页面分别显示浏览器传输进度与设备接收/写入进度；
 传输完成后仍须等待 SDK 校验、重启及首启确认。
+网页源文件位于 `main/web/`。正常 LVGL 界面会在上传时覆盖显示设备接收进度，
+随后显示校验、等待重启或失败状态；失败保持显示直到下一次上传，空闲时显示电源界面。
+进度达到 100% 和显示 `Rebooting...` 均不表示新固件已完成首启确认；最终结果以网页为准。
+彩条测试模式不运行 LVGL 界面，因此不显示 OTA 面板。
 
 |接口|行为|
 |---|---|
