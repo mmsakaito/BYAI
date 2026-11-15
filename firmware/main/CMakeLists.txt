@@ -14,6 +14,8 @@ idf_component_register(
         "app/power_test.c"
         "app/power_state.c"
         "app/power_state_fault_test.c"
+        "app/network.c"
+        "app/ota.c"
         ${LVGL_C}
     INCLUDE_DIRS
         "."
@@ -26,6 +28,17 @@ idf_component_register(
         esp_driver_spi
         esp_driver_gpio
         esp_timer
+        esp_netif
+        esp_wifi
+        nvs_flash
+        esp_wifi_service
+        esp_config_manager
+        esp_service
+        adf_event_hub
+        app_update
+        esp_http_server
+        espressif__cjson
+    EMBED_TXTFILES "web/ota_web.html"
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE

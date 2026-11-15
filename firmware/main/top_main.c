@@ -1,13 +1,16 @@
 /**
  * @file top_main.c
- * @brief 启动互斥的彩条或 LVGL 显示，以及正常电源采集或软件注入任务。
+ * @brief 启动显示、电源采集、唯一 Wi-Fi 服务及本地网页 OTA。
  *
- * @details ESP-IDF 已启动调度器；任务创建后 app_main 返回。
- *          任务创建失败只记录错误，不重启设备或修改持久化数据。
+ * @details 显示/电源任务创建失败只记录错误。网络与 OTA 本地初始化失败时，
+ *          待验证镜像请求 SDK 回退；成功才确认本次启动，不等待联网或外设可用。
  *
  * @copyright (c) 2026 BYAI. All rights reserved.
  */
 
+#include <stdbool.h>
+
+#include "esp_err.h"
 #include "esp_log.h"
 
 #include "kernel.h"
@@ -17,16 +20,27 @@
 #include "power_state_internal.h"
 #include "power_test.h"
 #include "sysdef.h"
+#include "ota.h"
 
 static const char *TAG = "bringup";
 
+esp_err_t byai_network_start(void (*on_ready)(bool ready));
+
 /**
- * @brief 启动板级测试任务；ESP-IDF 已启动调度器，app_main 可直接返回。
+ * @brief 初始化网络及 OTA，保留板级测试路径，最后确认待验证镜像。
  *
- * @note 显示与电源测试独立运行；创建失败时报告错误，不重启或修改持久化数据。
+ * @note 仅汇总网络与 OTA 本地初始化错误；显示/电源不参与首启确认。
  */
 void app_main(void)
 {
+    esp_err_t startup_result = byai_network_start(byai_ota_set_network_ready);
+    if (startup_result == ESP_OK) {
+        startup_result = byai_ota_init();
+    }
+    if (startup_result != ESP_OK) {
+        ESP_LOGE(TAG, "Network/OTA startup: %s", esp_err_to_name(startup_result));
+    }
+
     // 彩条与 LVGL 互斥启动，各自独占屏幕及 SPI 初始化。
 #if CONFIG_BYAI_LCD_COLOR_BARS_TEST
     if (xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, NULL, 1) != pdPASS) {
@@ -44,6 +58,7 @@ void app_main(void)
         ESP_LOGE(TAG, "SPI initialization failed; LVGL not started");
     }
 #endif
+
 #if CONFIG_BYAI_POWER_BASIC_TEST
 #if CONFIG_BYAI_POWER_ADC_TEST
     const bool adc_enabled = true;
@@ -67,4 +82,8 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to create power test task");
     }
 #endif
+    esp_err_t confirm_result = byai_ota_confirm_boot(startup_result);
+    if (confirm_result != ESP_OK) {
+        ESP_LOGE(TAG, "Boot confirmation: %s", esp_err_to_name(confirm_result));
+    }
 }
