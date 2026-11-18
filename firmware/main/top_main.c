@@ -33,7 +33,6 @@ static const char *TAG = "bringup";
  */
 void app_main(void)
 {
- feat/audio-output
 #if CONFIG_BYAI_AUDIO_SINE_TEST
     /* 正弦波测试独占共享 I2C 与 I2S：跳过显示初始化和电源采集，避免电源
      * 任务在同一总线上并发访问 codec。成功后日志依次是：寄存器写入完成 ->
@@ -45,7 +44,6 @@ void app_main(void)
    
 
     // 彩条与 LVGL 互斥启动，各自独占屏幕及 SPI 初始化。
- dev
 #if CONFIG_BYAI_LCD_COLOR_BARS_TEST
     if (xTaskCreatePinnedToCore(main_test, "app_test", 8192, NULL, 5, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create display/PSRAM task");
