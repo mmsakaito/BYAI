@@ -973,6 +973,8 @@ CONFIG_BYAI_POWER_DEBUG_DISABLE_WATCHDOG=y
 CONFIG_BYAI_POWER_ADC_TEST=y
 # default:
 # CONFIG_BYAI_POWER_STATE_FAULT_TEST is not set
+# default:
+# CONFIG_BYAI_AUDIO_SINE_TEST is not set
 # end of BYAI hardware tests
 
 #

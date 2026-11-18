@@ -4,7 +4,11 @@
  */
 #include "board_i2c.h"
 
+#include "esp_log.h"
+
 #include "sysdef.h"
+
+static const char *TAG = "board_i2c";
 
 static i2c_master_bus_handle_t board_bus;
 
@@ -25,8 +29,13 @@ esp_err_t board_i2c_get_bus(i2c_master_bus_handle_t *out_bus)
         };
         esp_err_t err = i2c_new_master_bus(&config, &board_bus);
         if (err != ESP_OK) {
+            /* 失败时清掉半成品句柄，允许下一个调用方重试初始化。 */
+            board_bus = NULL;
+            ESP_LOGE(TAG, "I2C 主机总线创建失败: 0x%x (%s)", err, esp_err_to_name(err));
             return err;
         }
+        ESP_LOGI(TAG, "I2C 主机总线创建成功: port=I2C_NUM_0, SDA=IO%d, SCL=IO%d, clk=XTAL",
+                 (int)PIN_I2C1_SDA, (int)PIN_I2C1_SCL);
     }
     *out_bus = board_bus;
     return ESP_OK;
