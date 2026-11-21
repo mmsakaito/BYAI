@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <stdlib.h>
 
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
@@ -13,6 +14,14 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_random.h"
+#include "esp_http_client.h"
+#include "esp_crt_bundle.h"
+#include "esp_netif_sntp.h"
+#include "esp_timer.h"
+#include "mbedtls/base64.h"
+#include "psa/crypto.h"
+#include "cJSON.h"
+#include "ota_repo_config.h"
 #include "lwip/sockets.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -21,15 +30,19 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
+
 #define BYAI_OTA_PREFIX_SIZE 288U
 
 
-/** @brief 值类型快照；锁内仅复制字段，格式化、HTTP 和 Flash 操作在锁外进行。 */
+typedef enum { OTA_SOURCE_NONE, OTA_SOURCE_LOCAL, OTA_SOURCE_GITHUB } ota_source_t;
+typedef struct ota_job ota_job_t;
+
 typedef struct {
     char boot_id[17];
     bool boot_confirmed;
     byai_ota_state_t state;
-    bool local_source;
+    ota_source_t source;
+    uint64_t release_id;
     bool network_ready;
     char current_version[32];
     char current_elf_sha256[65];
@@ -52,14 +65,12 @@ static bool byai_ota_snapshot_get(byai_ota_snapshot_t *snapshot);
 /**
  * @brief 非阻塞取得唯一事务，初始化、首启确认、布局和容量检查全部通过才取得。
  *
- * 成功后调用者必须提交一个异步请求，或由 HTTP close_fn 在关闭连接后释放事务。
- * worker 路径等待实际关闭的确认后才释放失败事务或开始重启延时。
- * ESP_ERR_OTA_ALREADY_IN_PROGRESS 表示 409，其余未就绪状态表示 503。
+ * 成功后调用者必须提交本来源作业；ESP_ERR_OTA_ALREADY_IN_PROGRESS 表示 409。
  */
-static esp_err_t byai_ota_upload_claim(size_t total_bytes);
+static esp_err_t byai_ota_upload_claim(size_t total_bytes, ota_source_t source, uint64_t release_id);
 
-/** @brief 将已取得事务的异步请求以零等待方式交给唯一 worker；失败时所有权不变。 */
-static esp_err_t byai_ota_upload_submit(httpd_req_t *request);
+/** @brief 将作业以零等待方式交给唯一 worker；失败时所有权不变。 */
+static esp_err_t byai_ota_upload_submit(const ota_job_t *job);
 
 /** @brief 记录已取得事务的失败；不释放事务，避免旧响应被下一次上传覆盖。 */
 static void byai_ota_upload_fail(esp_err_t error, const char *stage);
@@ -91,6 +102,29 @@ static esp_err_t byai_ota_http_send_snapshot(httpd_req_t *request, const char *h
  * 静态 transport context 使用不释放内存的 free 回调，关闭确认后方可由下一事务复用。
  */
 static void byai_ota_http_complete_upload(httpd_req_t *request);
+struct ota_job {
+    ota_source_t source;
+    union { httpd_req_t *request; uint64_t release_id; } value;
+};
+
+typedef struct {
+    const esp_partition_t *partition;
+    esp_ota_handle_t handle;
+    bool handle_valid;
+    size_t total;
+    size_t received;
+    httpd_req_t *request;
+    esp_http_client_handle_t client;
+    bool github;
+    char version[32];
+    uint8_t expected_sha[32];
+    psa_hash_operation_t hash;
+    TickType_t last_progress;
+    bool hash_active;
+} ota_stream_t;
+
+static bool s_sntp_initialized;
+static bool s_sntp_synchronized;
 
 static const char *TAG = "byai_ota";
 
@@ -209,7 +243,7 @@ static void byai_ota_upload_release(void)
     portEXIT_CRITICAL(&s_lock);
 }
 
-static esp_err_t byai_ota_upload_claim(size_t total_bytes)
+static esp_err_t byai_ota_upload_claim(size_t total_bytes, ota_source_t source, uint64_t release_id)
 {
     byai_ota_snapshot_t snapshot;
     esp_err_t error = ESP_OK;
@@ -218,36 +252,37 @@ static esp_err_t byai_ota_upload_claim(size_t total_bytes)
         error = ESP_ERR_OTA_ALREADY_IN_PROGRESS;
     } else if (!s_initialized || !s_snapshot.boot_confirmed || s_update_partition == NULL) {
         error = ESP_ERR_INVALID_STATE;
-    } else if (total_bytes < BYAI_OTA_PREFIX_SIZE || total_bytes > s_snapshot.max_image_size) {
+    } else if (source == OTA_SOURCE_GITHUB &&
+               !atomic_load_explicit(&s_network_ready, memory_order_relaxed)) {
+        error = ESP_ERR_INVALID_STATE;
+    } else if ((source == OTA_SOURCE_LOCAL &&
+                (total_bytes < BYAI_OTA_PREFIX_SIZE || total_bytes > s_snapshot.max_image_size))) {
         error = ESP_ERR_INVALID_SIZE;
     } else {
         s_owner = true;
         snapshot = s_snapshot;
     }
     portEXIT_CRITICAL(&s_lock);
-    if (error != ESP_OK) {
-        return error;
-    }
-
-    snapshot.state = BYAI_OTA_RECEIVING;
-    snapshot.local_source = true;
+    if (error != ESP_OK) return error;
+    snapshot.source = source;
+    snapshot.release_id = source == OTA_SOURCE_GITHUB ? release_id : 0;
+    snapshot.state = source == OTA_SOURCE_LOCAL ? BYAI_OTA_RECEIVING : BYAI_OTA_DOWNLOADING;
     snapshot.target_version[0] = '\0';
     snapshot.target_elf_sha256[0] = '\0';
     snapshot.received_bytes = 0;
-    snapshot.total_bytes = total_bytes;
+    snapshot.total_bytes = source == OTA_SOURCE_LOCAL ? total_bytes : 0;
     snapshot.percent = 0;
     snapshot.error = ESP_OK;
-    snprintf(snapshot.message, sizeof(snapshot.message), "正在接收并预检应用镜像");
+    snprintf(snapshot.message, sizeof(snapshot.message), "%s",
+             source == OTA_SOURCE_LOCAL ? "正在接收并预检应用镜像" : "正在查询 GitHub 发布");
     snapshot_store(&snapshot);
     return ESP_OK;
 }
 
-static esp_err_t byai_ota_upload_submit(httpd_req_t *request)
+static esp_err_t byai_ota_upload_submit(const ota_job_t *job)
 {
-    if (request == NULL || s_queue == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    return xQueueSend(s_queue, &request, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+    if (job == NULL || s_queue == NULL) return ESP_ERR_INVALID_STATE;
+    return xQueueSend(s_queue, job, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 /** @brief 累计短读；仅正字节数延长无进展期限，超时不吞掉断连或其他负错误。 */
@@ -275,7 +310,8 @@ static esp_err_t receive_bytes(httpd_req_t *request, uint8_t *buffer, size_t cap
 }
 
 /** @brief 通过固定前缀检查后才允许擦写；不依据版本大小拒绝重装或降级。 */
-static esp_err_t validate_prefix(byai_ota_snapshot_t *snapshot)
+static esp_err_t validate_prefix(byai_ota_snapshot_t *snapshot, bool github,
+                                 const char *expected_version)
 {
     esp_image_header_t header;
     esp_image_segment_header_t segment;
@@ -289,20 +325,18 @@ static esp_err_t validate_prefix(byai_ota_snapshot_t *snapshot)
         descriptor.magic_word != ESP_APP_DESC_MAGIC_WORD ||
         memchr(descriptor.project_name, '\0', sizeof(descriptor.project_name)) == NULL ||
         strcmp(descriptor.project_name, "BYAI") != 0 ||
-        memchr(descriptor.version, '\0', sizeof(descriptor.version)) == NULL) {
+        memchr(descriptor.version, '\0', sizeof(descriptor.version)) == NULL ||
+        (github && (expected_version == NULL || strcmp(descriptor.version, expected_version) != 0))) {
         return ESP_ERR_OTA_VALIDATE_FAILED;
     }
     esp_err_t error = esp_ota_check_image_validity(ESP_PARTITION_TYPE_APP, &header, &descriptor);
-    if (error != ESP_OK) {
-        return error;
-    }
+    if (error != ESP_OK) return error;
     memcpy(snapshot->target_version, descriptor.version, sizeof(snapshot->target_version));
     sha256_hex(descriptor.app_elf_sha256, snapshot->target_elf_sha256);
     snprintf(snapshot->message, sizeof(snapshot->message), "预检通过，正在写入备用应用分区");
     snapshot_store(snapshot);
     return ESP_OK;
 }
-
 static const char *validation_http_status(esp_err_t error)
 {
     return error == ESP_ERR_OTA_VALIDATE_FAILED || error == ESP_ERR_INVALID_VERSION ||
@@ -310,135 +344,578 @@ static const char *validation_http_status(esp_err_t error)
            "422 Unprocessable Entity" : "500 Internal Server Error";
 }
 
+/** @brief Read bounded chunks; only received bytes extend the progress deadline. */
+static esp_err_t stream_read(ota_stream_t *stream, uint8_t *buffer, size_t capacity, size_t *count)
+{
+    if (!stream->github) {
+        return receive_bytes(stream->request, buffer, capacity, count, &stream->last_progress);
+    }
+    while ((TickType_t)(xTaskGetTickCount() - stream->last_progress) < pdMS_TO_TICKS(30000)) {
+        int n = esp_http_client_read(stream->client, (char *)buffer, capacity);
+        if (n > 0) {
+            *count = (size_t)n;
+            stream->last_progress = xTaskGetTickCount();
+            return (size_t)n <= capacity ? ESP_OK : ESP_ERR_INVALID_SIZE;
+        }
+        if (n == -ESP_ERR_HTTP_EAGAIN) continue;
+        return n == 0 ? ESP_ERR_INVALID_SIZE : ESP_FAIL;
+    }
+    return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t process_image(ota_stream_t *stream, byai_ota_snapshot_t *snapshot)
+{
+    stream->last_progress = xTaskGetTickCount();
+    size_t received = 0;
+    while (received < BYAI_OTA_PREFIX_SIZE) {
+        size_t count = 0;
+        esp_err_t error = stream_read(stream, s_receive_buffer + received,
+                                      BYAI_OTA_PREFIX_SIZE - received, &count);
+        if (error != ESP_OK) return error;
+        received += count;
+    }
+    stream->received = received;
+    snapshot->received_bytes = received;
+    snapshot_progress(snapshot, received);
+    esp_err_t error = validate_prefix(snapshot, stream->github, stream->version);
+    if (error != ESP_OK) return error;
+    if (stream->github && psa_hash_update(&stream->hash, s_receive_buffer,
+                                         BYAI_OTA_PREFIX_SIZE) != PSA_SUCCESS) return ESP_FAIL;
+    error = esp_ota_begin(stream->partition, OTA_WITH_SEQUENTIAL_WRITES, &stream->handle);
+    if (error != ESP_OK) return error;
+    stream->handle_valid = true;
+    error = esp_ota_write(stream->handle, s_receive_buffer, BYAI_OTA_PREFIX_SIZE);
+    if (error != ESP_OK) return error;
+    while (received < stream->total) {
+        size_t capacity = stream->total - received;
+        if (capacity > sizeof(s_receive_buffer)) capacity = sizeof(s_receive_buffer);
+        size_t count = 0;
+        error = stream_read(stream, s_receive_buffer, capacity, &count);
+        if (error != ESP_OK || count == 0 || count > stream->total - received ||
+            count > stream->partition->size - received) return error == ESP_OK ? ESP_ERR_INVALID_SIZE : error;
+        if (stream->github && psa_hash_update(&stream->hash, s_receive_buffer, count) != PSA_SUCCESS)
+            return ESP_FAIL;
+        error = esp_ota_write(stream->handle, s_receive_buffer, count);
+        if (error != ESP_OK) return error;
+        received += count;
+        stream->received = received;
+        snapshot_progress(snapshot, received);
+    }
+    if (stream->github) {
+        uint8_t extra;
+        int count;
+        do {
+            count = esp_http_client_read(stream->client, (char *)&extra, 1);
+        } while (count == -ESP_ERR_HTTP_EAGAIN &&
+                 (TickType_t)(xTaskGetTickCount() - stream->last_progress) < pdMS_TO_TICKS(30000));
+        if (count != 0 || !esp_http_client_is_complete_data_received(stream->client))
+            return ESP_ERR_INVALID_SIZE;
+        psa_status_t result = psa_hash_verify(&stream->hash, stream->expected_sha,
+                                             sizeof(stream->expected_sha));
+        stream->hash_active = false;
+        if (result != PSA_SUCCESS) return ESP_ERR_OTA_VALIDATE_FAILED;
+    }
+    snapshot->state = BYAI_OTA_VERIFYING;
+    snprintf(snapshot->message, sizeof(snapshot->message), "正在校验完整镜像");
+    snapshot_store(snapshot);
+    error = esp_ota_end(stream->handle);
+    stream->handle_valid = false;
+    if (error != ESP_OK) return error;
+    return esp_ota_set_boot_partition(stream->partition);
+}
 /**
  * @brief worker 独占完整事务；end 后句柄无条件失效，提交后保持独占直到重启。
  *
  * 所有失败在异步请求完成之后才释放 owner；成功在响应完成后由本 worker 延时重启，
  * 不在选择新启动槽后申请额外任务或工作项。
  */
+
+static esp_err_t ensure_time_sync(void)
+{
+    if (!s_sntp_initialized) {
+        esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+        esp_err_t error = esp_netif_sntp_init(&config);
+        if (error != ESP_OK) return error;
+        s_sntp_initialized = true;
+    }
+    if (s_sntp_synchronized) return ESP_OK;
+    esp_err_t error = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(15000));
+    if (error == ESP_OK) s_sntp_synchronized = true;
+    return error;
+}
+
+static esp_err_t parse_hex_sha256(const char *text, uint8_t output[32])
+{
+    if (text == NULL || strlen(text) != 64) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < 32; ++i) {
+        unsigned a = (unsigned char)text[i * 2], b = (unsigned char)text[i * 2 + 1];
+        a = a >= '0' && a <= '9' ? a - '0' : a >= 'a' && a <= 'f' ? a - 'a' + 10 : 99;
+        b = b >= '0' && b <= '9' ? b - '0' : b >= 'a' && b <= 'f' ? b - 'a' + 10 : 99;
+        if (a > 15 || b > 15) return ESP_ERR_INVALID_ARG;
+        output[i] = (a << 4) | b;
+    }
+    return ESP_OK;
+}
+
+typedef struct {
+    char location[2049];
+    bool location_seen;
+} github_http_context_t;
+static char s_github_request_url[4096];
+static github_http_context_t s_github_request_event;
+static char s_github_resolve_url[1280];
+static char s_github_encoded_ref[1024];
+static char s_github_seen_shas[9][41];
+static github_http_context_t s_github_download_event;
+
+static esp_err_t github_http_event(esp_http_client_event_t *event)
+{
+    github_http_context_t *context = event->user_data;
+    if (event->event_id == HTTP_EVENT_ON_HEADER && event->header_key != NULL &&
+        event->header_value != NULL && strcasecmp(event->header_key, "Location") == 0) {
+        size_t length = strlen(event->header_value);
+        if (length >= sizeof(context->location)) return ESP_FAIL;
+        memcpy(context->location, event->header_value, length + 1);
+        context->location_seen = true;
+    }
+    return ESP_OK;
+}
+
+static bool github_host_allowed(const char *url)
+{
+    const char *host = strstr(url, "://");
+    if (host == NULL || strncmp(url, "https://", 8) != 0) return false;
+    host += 8;
+    const char *end = strpbrk(host, "/?#");
+    size_t length = end == NULL ? strlen(host) : (size_t)(end - host);
+    if (length == 0 || memchr(host, '@', length) != NULL || memchr(host, ':', length) != NULL) return false;
+    return (length == sizeof("api.github.com") - 1 && strncasecmp(host, "api.github.com", length) == 0) ||
+           (length == sizeof("github.com") - 1 && strncasecmp(host, "github.com", length) == 0) ||
+           (length == sizeof("release-assets.githubusercontent.com") - 1 &&
+            strncasecmp(host, "release-assets.githubusercontent.com", length) == 0) ||
+           (length == sizeof("objects.githubusercontent.com") - 1 &&
+            strncasecmp(host, "objects.githubusercontent.com", length) == 0);
+}
+
+static bool github_json_complete(const char *body, size_t length, cJSON **root)
+{
+    const char *end = NULL;
+    *root = cJSON_ParseWithLengthOpts(body, length, &end, false);
+    if (*root == NULL) return false;
+    while (end < body + length && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) ++end;
+    if (end != body + length || !cJSON_IsObject(*root)) {
+        cJSON_Delete(*root); *root = NULL; return false;
+    }
+    return true;
+}
+
+
+static size_t github_key_count(const cJSON *object, const char *key)
+{
+    size_t count = 0;
+    for (const cJSON *item = object == NULL ? NULL : object->child; item != NULL; item = item->next)
+        if (item->string != NULL && strcmp(item->string, key) == 0) ++count;
+    return count;
+}
+
+static cJSON *github_unique(const cJSON *object, const char *key)
+{
+    return github_key_count(object, key) == 1 ? cJSON_GetObjectItemCaseSensitive((cJSON *)object, key) : NULL;
+}
+
+static esp_err_t github_request(const char *initial_url, const char *accept, size_t limit,
+                                char **body, size_t *length, int *status)
+{
+    if (strlen(initial_url) >= sizeof(s_github_request_url) ||
+        !github_host_allowed(initial_url)) return ESP_ERR_INVALID_RESPONSE;
+    strcpy(s_github_request_url, initial_url);
+    int64_t started = esp_timer_get_time();
+    for (unsigned redirect = 0; redirect <= 5; ++redirect) {
+        memset(&s_github_request_event, 0, sizeof(s_github_request_event));
+        esp_http_client_config_t config = {
+            .url = s_github_request_url, .timeout_ms = 15000, .disable_auto_redirect = true,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .event_handler = github_http_event, .user_data = &s_github_request_event,
+        };
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        if (client == NULL) return ESP_ERR_NO_MEM;
+        esp_http_client_set_header(client, "User-Agent", "BYAI-OTA");
+        esp_http_client_set_header(client, "Accept", accept);
+        esp_err_t error = esp_http_client_open(client, 0);
+        int64_t deadline = esp_timer_get_time() + 30000000;
+        while (error == ESP_ERR_HTTP_EAGAIN && esp_timer_get_time() < deadline)
+            error = esp_http_client_open(client, 0);
+        int64_t size = error == ESP_OK ? esp_http_client_fetch_headers(client) : -1;
+        while (error == ESP_OK && size == -ESP_ERR_HTTP_EAGAIN && esp_timer_get_time() < deadline)
+            size = esp_http_client_fetch_headers(client);
+        int code = esp_http_client_get_status_code(client);
+        *status = code;
+        if (error == ESP_OK && (code == 301 || code == 302 || code == 303 || code == 307 || code == 308)) {
+            bool valid = redirect < 5 && s_github_request_event.location_seen &&
+                         github_host_allowed(s_github_request_event.location) &&
+                         strlen(s_github_request_event.location) < sizeof(s_github_request_url);
+            esp_http_client_cleanup(client);
+            if (!valid) return ESP_ERR_INVALID_RESPONSE;
+            strcpy(s_github_request_url, s_github_request_event.location);
+            continue;
+        }
+        if (error != ESP_OK) { esp_http_client_cleanup(client); return error; }
+        bool chunked = esp_http_client_is_chunked_response(client);
+        if (esp_timer_get_time() - started > 30000000 || code != 200 ||
+            (!chunked && size < 0) || (size >= 0 && (uint64_t)size > limit)) {
+            esp_http_client_cleanup(client);
+            return size > (int64_t)limit ? ESP_ERR_INVALID_SIZE : ESP_ERR_INVALID_RESPONSE;
+        }
+        char *buffer = malloc(limit + 1);
+        if (buffer == NULL) { esp_http_client_cleanup(client); return ESP_ERR_NO_MEM; }
+        size_t used = 0;
+        int64_t progress_deadline = esp_timer_get_time() + 30000000;
+        while (used < limit && ((chunked && !esp_http_client_is_complete_data_received(client)) ||
+                                (!chunked && used < (size_t)size))) {
+            size_t room = limit - used;
+            int n = esp_http_client_read(client, buffer + used, room);
+            if (n == -ESP_ERR_HTTP_EAGAIN) {
+                if (esp_timer_get_time() >= progress_deadline) { error = ESP_ERR_TIMEOUT; break; }
+                continue;
+            }
+            if (n <= 0) { error = ESP_ERR_INVALID_RESPONSE; break; }
+            used += (size_t)n;
+            progress_deadline = esp_timer_get_time() + 30000000;
+            if (esp_timer_get_time() - started > 30000000) { error = ESP_ERR_TIMEOUT; break; }
+        }
+        bool complete = esp_http_client_is_complete_data_received(client);
+        esp_http_client_cleanup(client);
+        if (error != ESP_OK || !complete || (size >= 0 && used != (size_t)size)) {
+            free(buffer); return error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : error;
+        }
+        buffer[used] = 0;
+        *body = buffer;
+        *length = used;
+        return ESP_OK;
+    }
+    return ESP_ERR_INVALID_RESPONSE;
+}
+
+static esp_err_t github_json_get(const char *url, size_t limit, char **body, size_t *length)
+{
+    int status = 0;
+    return github_request(url, "application/vnd.github+json", limit, body, length, &status);
+}
+
+static esp_err_t github_get_commit(const char *ref, char sha[41])
+{
+    if(strlen(ref)>255) return ESP_ERR_INVALID_SIZE;
+    size_t used = 0;
+    for (const unsigned char *p = (const unsigned char *)ref; *p; ++p) {
+        if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+            (*p >= '0' && *p <= '9') || *p == '-' || *p == '_' ||
+            *p == '.' || *p == '~') {
+            s_github_encoded_ref[used++] = (char)*p;
+        } else {
+            static const char hex[] = "0123456789ABCDEF";
+            s_github_encoded_ref[used++] = '%';
+            s_github_encoded_ref[used++] = hex[*p >> 4];
+            s_github_encoded_ref[used++] = hex[*p & 15];
+        }
+    }
+    s_github_encoded_ref[used]=0;
+    int n=snprintf(s_github_resolve_url,sizeof(s_github_resolve_url),
+                   "https://api.github.com/repos/%s/%s/git/ref/tags/%s",
+                   BYAI_OTA_GITHUB_OWNER,BYAI_OTA_GITHUB_REPO,s_github_encoded_ref);
+    if(n<0 || (size_t)n>=sizeof(s_github_resolve_url)) return ESP_ERR_INVALID_SIZE;
+    char *body=NULL; size_t length=0; cJSON *root=NULL;
+    esp_err_t error=github_json_get(s_github_resolve_url,4096,&body,&length);
+    if(error==ESP_OK && !github_json_complete(body,length,&root)) error=ESP_ERR_INVALID_RESPONSE;
+    free(body); body=NULL;
+    cJSON *object=github_unique(root,"object");
+    cJSON *type=github_unique(object,"type"), *object_sha=github_unique(object,"sha");
+    if(error==ESP_OK && (!cJSON_IsString(type)||!cJSON_IsString(object_sha)||strlen(object_sha->valuestring)!=40))
+        error=ESP_ERR_INVALID_RESPONSE;
+    static char current[41];
+    memset(s_github_seen_shas, 0, sizeof(s_github_seen_shas));
+    unsigned seen_count=0;
+    if(error==ESP_OK) memcpy(current,object_sha->valuestring,41);
+    if(error==ESP_OK) memcpy(s_github_seen_shas[seen_count++],current,41);
+    for (unsigned depth = 0; error == ESP_OK &&
+         !strcmp(type->valuestring, "tag") && depth < 8; ++depth) {
+        n = snprintf(s_github_resolve_url, sizeof(s_github_resolve_url),
+                     "https://api.github.com/repos/%s/%s/git/tags/%s",
+                     BYAI_OTA_GITHUB_OWNER, BYAI_OTA_GITHUB_REPO, current);
+        if (n < 0 || (size_t)n >= sizeof(s_github_resolve_url)) {
+            error = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        free(body); body=NULL; cJSON_Delete(root); root=NULL;
+        error=github_json_get(s_github_resolve_url,4096,&body,&length);
+        if(error==ESP_OK&&!github_json_complete(body,length,&root)) error=ESP_ERR_INVALID_RESPONSE;
+        if(error!=ESP_OK) break;
+        object=github_unique(root,"object");
+        type=github_unique(object,"type"); object_sha=github_unique(object,"sha");
+        if(!cJSON_IsString(type)||!cJSON_IsString(object_sha)||strlen(object_sha->valuestring)!=40) {
+            error=ESP_ERR_INVALID_RESPONSE; break;
+        }
+        memcpy(current,object_sha->valuestring,41);
+        for(unsigned i=0;i<seen_count;i++) if(!strcmp(s_github_seen_shas[i],object_sha->valuestring))
+            error=ESP_ERR_INVALID_RESPONSE;
+        if(error!=ESP_OK) break;
+        memcpy(s_github_seen_shas[seen_count++],object_sha->valuestring,41);
+    }
+    if(error==ESP_OK && strcmp(type->valuestring,"commit")) error=ESP_ERR_INVALID_RESPONSE;
+    if(error==ESP_OK) memcpy(sha,current,41);
+    free(body); cJSON_Delete(root);
+    return error;
+}
+
+static esp_err_t github_metadata(uint64_t release_id, char version[32], size_t *size,
+                                 uint8_t digest[32], uint64_t *asset_id)
+{
+    char url[256];
+    int url_length = snprintf(url, sizeof(url), "https://api.github.com/repos/%s/%s/releases/%" PRIu64,
+                              BYAI_OTA_GITHUB_OWNER, BYAI_OTA_GITHUB_REPO, release_id);
+    if (url_length < 0 || (size_t)url_length >= sizeof(url)) return ESP_ERR_INVALID_SIZE;
+    char *body = NULL; size_t length = 0; cJSON *release = NULL;
+    esp_err_t error = github_json_get(url, 32768, &body, &length);
+    if (error != ESP_OK) return error;
+    if (!github_json_complete(body, length, &release)) { free(body); return ESP_ERR_INVALID_RESPONSE; }
+    free(body);
+    cJSON *draft = github_unique(release, "draft"), *assets = github_unique(release, "assets");
+    cJSON *tag = github_unique(release, "tag_name"), *release_number = github_unique(release, "id");
+    cJSON *prerelease = github_unique(release, "prerelease");
+    if (!cJSON_IsFalse(draft) || !cJSON_IsArray(assets) || !cJSON_IsString(tag) ||
+        !cJSON_IsNumber(release_number) || release_number->valuedouble != (double)release_id ||
+        !cJSON_IsBool(prerelease)) error = ESP_ERR_INVALID_RESPONSE;
+    cJSON *manifest_asset = NULL, *image_asset = NULL;
+    if (error == ESP_OK) {
+        cJSON *asset;
+        cJSON_ArrayForEach(asset, assets) {
+            cJSON *name = github_unique(asset, "name");
+            if (!cJSON_IsString(name)) { error = ESP_ERR_INVALID_RESPONSE; break; }
+            if (!strcmp(name->valuestring, "BYAI_OTA.json")) {
+                if (manifest_asset != NULL) error = ESP_ERR_INVALID_RESPONSE;
+                manifest_asset = asset;
+            }
+        }
+        if (manifest_asset == NULL) error = ESP_ERR_NOT_FOUND;
+    }
+    char manifest_url[256];
+    cJSON *manifest_id = github_unique(manifest_asset, "id");
+    uint64_t id_value = cJSON_IsNumber(manifest_id) && manifest_id->valuedouble >= 1 &&
+        manifest_id->valuedouble <= 9007199254740991.0 &&
+        (double)(uint64_t)manifest_id->valuedouble == manifest_id->valuedouble ?
+        (uint64_t)manifest_id->valuedouble : 0;
+    int manifest_url_length = snprintf(manifest_url, sizeof(manifest_url),
+        "https://api.github.com/repos/%s/%s/releases/assets/%" PRIu64,
+        BYAI_OTA_GITHUB_OWNER, BYAI_OTA_GITHUB_REPO, id_value);
+    if (manifest_url_length < 0 || (size_t)manifest_url_length >= sizeof(manifest_url) || id_value == 0)
+        error = ESP_ERR_INVALID_RESPONSE;
+    char *manifest_body = NULL; size_t manifest_length = 0; cJSON *manifest = NULL;
+    if (error == ESP_OK) error = github_request(manifest_url, "application/octet-stream", 4096,
+                                                  &manifest_body, &manifest_length, &(int){0});
+    if (error == ESP_OK && !github_json_complete(manifest_body, manifest_length, &manifest))
+        error = ESP_ERR_INVALID_RESPONSE;
+    free(manifest_body);
+    const char *required[] = {"schema_version","project","chip","source","ref","commit","version","application"};
+    if (error == ESP_OK) for (size_t i=0;i<sizeof(required)/sizeof(required[0]);++i)
+        if (github_unique(manifest, required[i]) == NULL) error = ESP_ERR_INVALID_RESPONSE;
+    cJSON *app = github_unique(manifest, "application");
+    if (error == ESP_OK && (!cJSON_IsNumber(github_unique(manifest,"schema_version")) ||
+        github_unique(manifest,"schema_version")->valuedouble != 1.0 ||
+        !cJSON_IsString(github_unique(manifest,"project")) || strcmp(github_unique(manifest,"project")->valuestring,"BYAI") ||
+        !cJSON_IsString(github_unique(manifest,"chip")) || strcmp(github_unique(manifest,"chip")->valuestring,"esp32s3") ||
+        !cJSON_IsString(github_unique(manifest,"source")) || !cJSON_IsString(github_unique(manifest,"ref")) ||
+        !cJSON_IsString(github_unique(manifest,"commit")) || !cJSON_IsString(github_unique(manifest,"version")) ||
+        !cJSON_IsObject(app))) error = ESP_ERR_INVALID_RESPONSE;
+    const char *appkeys[]={"name","size","sha256"};
+    if (error == ESP_OK) for(size_t i=0;i<3;i++) if(github_unique(app,appkeys[i])==NULL) error=ESP_ERR_INVALID_RESPONSE;
+    char expected_version[32], actual_commit[41];
+    cJSON *source = github_unique(manifest,"source"), *ref=github_unique(manifest,"ref");
+    const char *commit = error == ESP_OK ? github_unique(manifest,"commit")->valuestring : "";
+    const char *v=error == ESP_OK ? github_unique(manifest,"version")->valuestring : "";
+    if(error==ESP_OK && (strlen(commit)!=40 || strspn(commit,"0123456789abcdef")!=40)) error=ESP_ERR_INVALID_RESPONSE;
+    if(error==ESP_OK) {
+        bool is_branch = !strcmp(source->valuestring,"dev") || !strcmp(source->valuestring,"main");
+        if (cJSON_IsBool(prerelease) && cJSON_IsTrue(prerelease) != is_branch)
+            error = ESP_ERR_INVALID_RESPONSE;
+        if(is_branch) {
+            snprintf(expected_version,sizeof(expected_version),"%s-%.12s",source->valuestring,commit);
+            char expected_tag[64]; snprintf(expected_tag,sizeof(expected_tag),"ota-%s-%s",source->valuestring,commit);
+            if(strcmp(tag->valuestring,expected_tag)) error=ESP_ERR_INVALID_RESPONSE;
+            if(error==ESP_OK) error=github_get_commit(expected_tag,actual_commit);
+            if(error==ESP_OK && strcmp(actual_commit,commit)) error=ESP_ERR_INVALID_RESPONSE;
+        } else if(!strcmp(source->valuestring,"tag") && ref->valuestring[0]) {
+            if(!strncmp(ref->valuestring,"ota-dev-",8) || !strncmp(ref->valuestring,"ota-main-",9))
+                error=ESP_ERR_INVALID_RESPONSE;
+            bool safe=strspn(ref->valuestring,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+-")==strlen(ref->valuestring) && strlen(ref->valuestring)<=31;
+            if(safe) snprintf(expected_version,sizeof(expected_version),"%s",ref->valuestring);
+            else snprintf(expected_version,sizeof(expected_version),"tag-%.12s",commit);
+            if(error==ESP_OK) error=github_get_commit(ref->valuestring,actual_commit);
+            if(error==ESP_OK && strcmp(actual_commit,commit)) error=ESP_ERR_INVALID_RESPONSE;
+            if(error==ESP_OK && strcmp(tag->valuestring,ref->valuestring)) error=ESP_ERR_INVALID_RESPONSE;
+        } else error=ESP_ERR_INVALID_RESPONSE;
+        if(error==ESP_OK && strcmp(v,expected_version)) error=ESP_ERR_INVALID_RESPONSE;
+    }
+    if(error==ESP_OK) {
+        cJSON *name=github_unique(app,"name"), *sz=github_unique(app,"size"), *sha=github_unique(app,"sha256");
+        char expected_name[64];
+        snprintf(expected_name,sizeof(expected_name),"BYAI_firmware_%.12s.bin",commit);
+        if(!cJSON_IsString(name) || strcmp(name->valuestring,expected_name) ||
+           !cJSON_IsNumber(sz)||sz->valuedouble<BYAI_OTA_PREFIX_SIZE||
+           sz->valuedouble>s_update_partition->size||(double)(size_t)sz->valuedouble!=sz->valuedouble||
+           !cJSON_IsString(sha)||parse_hex_sha256(sha->valuestring,digest)!=ESP_OK) error=ESP_ERR_INVALID_RESPONSE;
+        else {
+            *size=(size_t)sz->valuedouble; snprintf(version,32,"%s",v);
+            cJSON *asset; cJSON_ArrayForEach(asset,assets) {
+                cJSON *an=github_unique(asset,"name");
+                if(cJSON_IsString(an)&&!strcmp(an->valuestring,name->valuestring)) {
+                    if(image_asset!=NULL) { error=ESP_ERR_INVALID_RESPONSE; break; }
+                    image_asset=asset;
+                }
+            }
+            cJSON *aid=github_unique(image_asset,"id"), *asize=github_unique(image_asset,"size");
+            if(!cJSON_IsNumber(aid)||aid->valuedouble<1||aid->valuedouble>9007199254740991.0||
+               (double)(uint64_t)aid->valuedouble!=aid->valuedouble||!cJSON_IsNumber(asize)||asize->valuedouble!=*size)
+                error=ESP_ERR_INVALID_RESPONSE;
+            else *asset_id=(uint64_t)aid->valuedouble;
+        }
+    }
+    cJSON_Delete(manifest); cJSON_Delete(release);
+    return error;
+}
+
+static esp_err_t github_download(uint64_t asset_id, size_t size, const uint8_t sha[32],
+                                 ota_stream_t *stream)
+{
+    memset(s_github_request_url, 0, sizeof(s_github_request_url));
+    int url_length=snprintf(s_github_request_url,sizeof(s_github_request_url),
+        "https://api.github.com/repos/%s/%s/releases/assets/%" PRIu64,
+        BYAI_OTA_GITHUB_OWNER,BYAI_OTA_GITHUB_REPO,asset_id);
+    if(url_length<0 || (size_t)url_length>=sizeof(s_github_request_url) ||
+       !github_host_allowed(s_github_request_url)) return ESP_ERR_INVALID_RESPONSE;
+    esp_err_t error=ESP_ERR_INVALID_RESPONSE;
+    for(unsigned redirect=0;redirect<=5;redirect++) {
+        memset(&s_github_download_event,0,sizeof(s_github_download_event));
+        esp_http_client_config_t config={.url=s_github_request_url,.timeout_ms=15000,.disable_auto_redirect=true,
+            .crt_bundle_attach=esp_crt_bundle_attach,.event_handler=github_http_event,
+            .user_data=&s_github_download_event};
+        stream->client=esp_http_client_init(&config);
+        if(stream->client==NULL) return ESP_ERR_NO_MEM;
+        esp_http_client_set_header(stream->client,"User-Agent","BYAI-OTA");
+        esp_http_client_set_header(stream->client,"Accept","application/octet-stream");
+        error=esp_http_client_open(stream->client,0);
+        int64_t deadline=esp_timer_get_time()+30000000;
+        while(error==ESP_ERR_HTTP_EAGAIN && esp_timer_get_time()<deadline)
+            error=esp_http_client_open(stream->client,0);
+        if(error!=ESP_OK) return error;
+        int64_t content_length=esp_http_client_fetch_headers(stream->client);
+        while(content_length==-ESP_ERR_HTTP_EAGAIN && esp_timer_get_time()<deadline)
+            content_length=esp_http_client_fetch_headers(stream->client);
+        int code=esp_http_client_get_status_code(stream->client);
+        if(code==301 || code==302 || code==303 || code==307 || code==308) {
+            bool valid=redirect<5 && s_github_download_event.location_seen &&
+                github_host_allowed(s_github_download_event.location) &&
+                strlen(s_github_download_event.location)<sizeof(s_github_request_url);
+            esp_http_client_cleanup(stream->client); stream->client=NULL;
+            if(!valid) return ESP_ERR_INVALID_RESPONSE;
+            strcpy(s_github_request_url,s_github_download_event.location);
+            continue;
+        }
+        bool chunked=esp_http_client_is_chunked_response(stream->client);
+        if(code!=200 || (!chunked && content_length<0) ||
+           (content_length>=0 && (size_t)content_length!=size))
+            return ESP_ERR_INVALID_RESPONSE;
+        stream->total=size; memcpy(stream->expected_sha,sha,32);
+        if(psa_crypto_init()!=PSA_SUCCESS) return ESP_FAIL;
+        stream->hash=psa_hash_operation_init();
+        if(psa_hash_setup(&stream->hash,PSA_ALG_SHA_256)!=PSA_SUCCESS) {
+            psa_hash_abort(&stream->hash); return ESP_FAIL;
+        }
+        stream->hash_active=true;
+        return ESP_OK;
+    }
+    return error;
+}
+
+static void process_github(uint64_t release_id)
+{
+    byai_ota_snapshot_t snapshot;
+    byai_ota_snapshot_get(&snapshot);
+    const char *stage = "GitHub release metadata failed";
+    esp_err_t error = ensure_time_sync();
+    size_t size = 0;
+    uint8_t digest[32];
+    uint64_t asset_id = 0;
+    char version[32] = {0};
+    if (error == ESP_OK) {
+        stage = "GitHub manifest validation failed";
+        error = github_metadata(release_id, version, &size, digest, &asset_id);
+    }
+    ota_stream_t stream = {.github = true, .partition = s_update_partition};
+    memcpy(stream.version, version, sizeof(stream.version));
+    if (error == ESP_OK) {
+        snapshot.total_bytes = size;
+        snapshot.state = BYAI_OTA_DOWNLOADING;
+        snapshot_progress(&snapshot, 0);
+        stage = "GitHub HTTPS asset download failed";
+        error = github_download(asset_id, size, digest, &stream);
+    }
+    if (error == ESP_OK) {
+        stage = "GitHub image validation or write failed";
+        error = process_image(&stream, &snapshot);
+    }
+    if (stream.client != NULL) {
+        esp_http_client_close(stream.client);
+        esp_http_client_cleanup(stream.client);
+    }
+    if (stream.hash_active) psa_hash_abort(&stream.hash);
+    if (error != ESP_OK) {
+        if (stream.handle_valid) esp_ota_abort(stream.handle);
+        byai_ota_upload_fail(error, stage);
+        byai_ota_upload_release();
+        return;
+    }
+    snapshot.state = BYAI_OTA_REBOOTING;
+    snapshot.error = ESP_OK;
+    snprintf(snapshot.message, sizeof(snapshot.message), "GitHub 镜像已提交，设备即将重启");
+    snapshot_store(&snapshot);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+}
+
 static void process_upload(httpd_req_t *request)
 {
     byai_ota_snapshot_t snapshot;
     byai_ota_snapshot_get(&snapshot);
-    esp_ota_handle_t handle = 0;
-    bool handle_valid = false;
-    size_t received = 0;
-    TickType_t last_progress = xTaskGetTickCount();
-    const char *stage = "接收应用镜像前缀失败";
-    const char *http_status = "500 Internal Server Error";
-    esp_err_t error;
-
-    while (received < BYAI_OTA_PREFIX_SIZE) {
-        size_t count = 0;
-        error = receive_bytes(request, s_receive_buffer + received,
-                              BYAI_OTA_PREFIX_SIZE - received, &count, &last_progress);
-        if (error != ESP_OK) {
-            goto failed;
-        }
-        received += count;
-        snapshot_progress(&snapshot, received);
-    }
-
-    stage = "应用镜像前缀预检失败，未擦写备用槽";
-    error = validate_prefix(&snapshot);
+    ota_stream_t stream = {.github = false, .partition = s_update_partition,
+        .total = snapshot.total_bytes, .request = request};
+    esp_err_t error = process_image(&stream, &snapshot);
+    if (error != ESP_OK && stream.handle_valid) esp_ota_abort(stream.handle);
     if (error != ESP_OK) {
-        http_status = "422 Unprocessable Entity";
-        goto failed;
+        byai_ota_upload_fail(error, "本地应用镜像接收、校验或写入失败");
+        byai_ota_snapshot_get(&snapshot);
+        byai_ota_http_send_snapshot(request, validation_http_status(error), &snapshot);
+        byai_ota_http_complete_upload(request);
+        byai_ota_upload_release();
+        return;
     }
-    stage = "开始备用槽 OTA 写入失败";
-    error = esp_ota_begin(s_update_partition, OTA_WITH_SEQUENTIAL_WRITES, &handle);
-    if (error != ESP_OK) {
-        goto failed;
-    }
-    handle_valid = true;
-    stage = "写入应用镜像前缀失败";
-    error = esp_ota_write(handle, s_receive_buffer, BYAI_OTA_PREFIX_SIZE);
-    if (error != ESP_OK) {
-        goto failed;
-    }
-
-    while (received < snapshot.total_bytes) {
-        size_t capacity = snapshot.total_bytes - received;
-        if (capacity > sizeof(s_receive_buffer)) {
-            capacity = sizeof(s_receive_buffer);
-        }
-        size_t count = 0;
-        stage = "接收应用镜像失败或 30 秒无进展";
-        error = receive_bytes(request, s_receive_buffer, capacity, &count, &last_progress);
-        if (error != ESP_OK) {
-            goto failed;
-        }
-        if (count > snapshot.total_bytes - received ||
-            count > s_update_partition->size - received) {
-            error = ESP_ERR_INVALID_SIZE;
-            goto failed;
-        }
-        received += count;
-        stage = "写入备用应用分区失败";
-        error = esp_ota_write(handle, s_receive_buffer, count);
-        snapshot_progress(&snapshot, received);
-        if (error != ESP_OK) {
-            goto failed;
-        }
-    }
-    if (received != snapshot.total_bytes || received > s_update_partition->size) {
-        error = ESP_ERR_INVALID_SIZE;
-        stage = "应用镜像实际长度与声明长度不符";
-        goto failed;
-    }
-
-    snapshot.state = BYAI_OTA_VERIFYING;
-    snprintf(snapshot.message, sizeof(snapshot.message), "正在校验完整镜像与附加 SHA-256");
-    snapshot_store(&snapshot);
-    stage = "SDK 完整镜像校验失败";
-    error = esp_ota_end(handle);
-    handle_valid = false;
-    if (error != ESP_OK) {
-        http_status = validation_http_status(error);
-        goto failed;
-    }
-    stage = "提交下次启动分区失败";
-    error = esp_ota_set_boot_partition(s_update_partition);
-    if (error != ESP_OK) {
-        http_status = validation_http_status(error);
-        goto failed;
-    }
-
     snapshot.state = BYAI_OTA_REBOOTING;
     snapshot.error = ESP_OK;
     snprintf(snapshot.message, sizeof(snapshot.message), "镜像已提交，设备即将重启；需核对重启后的摘要");
     snapshot_store(&snapshot);
     byai_ota_snapshot_get(&snapshot);
-    error = byai_ota_http_send_snapshot(request, "200 OK", &snapshot);
-    if (error != ESP_OK) {
-        ESP_LOGW(TAG, "Committed upload response: %s", esp_err_to_name(error));
-    }
+    byai_ota_http_send_snapshot(request, "200 OK", &snapshot);
     byai_ota_http_complete_upload(request);
     vTaskDelay(pdMS_TO_TICKS(2000));
     esp_restart();
-    return;
-
-failed:
-    if (handle_valid) {
-        esp_err_t abort_error = esp_ota_abort(handle);
-        if (abort_error != ESP_OK) {
-            ESP_LOGE(TAG, "OTA abort: %s", esp_err_to_name(abort_error));
-        }
-    }
-    byai_ota_upload_fail(error, stage);
-    byai_ota_snapshot_get(&snapshot);
-    byai_ota_http_send_snapshot(request, http_status, &snapshot);
-    byai_ota_http_complete_upload(request);
-    byai_ota_upload_release();
 }
 
 static void ota_worker(void *argument)
 {
     (void)argument;
+    ota_job_t job;
     for (;;) {
-        httpd_req_t *request = NULL;
-        if (xQueueReceive(s_queue, &request, portMAX_DELAY) == pdTRUE) {
-            process_upload(request);
+        if (xQueueReceive(s_queue, &job, portMAX_DELAY) == pdTRUE) {
+            if (job.source == OTA_SOURCE_GITHUB) process_github(job.value.release_id);
+            else process_upload(job.value.request);
         }
     }
 }
@@ -487,7 +964,7 @@ esp_err_t byai_ota_init(void)
     snapshot_store(&snapshot);
 
     esp_err_t error = ESP_ERR_NO_MEM;
-    s_queue = xQueueCreate(1, sizeof(httpd_req_t *));
+    s_queue = xQueueCreate(1, sizeof(ota_job_t));
     if (s_queue == NULL) {
         goto failed;
     }
@@ -702,13 +1179,15 @@ static esp_err_t byai_ota_http_send_snapshot(httpd_req_t *request, const char *h
                                       const byai_ota_snapshot_t *snapshot)
 {
     static const char *const states[] = {
-        "idle", "receiving", "verifying", "rebooting", "failed",
+        "idle", "receiving", "downloading", "verifying", "rebooting", "failed",
     };
     json_buffer_t json = {0};
     json_append(&json, "{", 1);
     json_string_field(&json, "boot_id", snapshot->boot_id);
     json_string_field(&json, "state", states[snapshot->state]);
-    json_string_field(&json, "source", snapshot->local_source ? "local" : "");
+    json_string_field(&json, "source", snapshot->source == OTA_SOURCE_LOCAL ? "local" :
+                      snapshot->source == OTA_SOURCE_GITHUB ? "github" : "");
+    json_string_field(&json, "github_repository", BYAI_OTA_GITHUB_OWNER "/" BYAI_OTA_GITHUB_REPO);
     json_string_field(&json, "current_version", snapshot->current_version);
     json_string_field(&json, "current_elf_sha256", snapshot->current_elf_sha256);
     json_string_field(&json, "running_partition", snapshot->running_partition);
@@ -722,11 +1201,12 @@ static esp_err_t byai_ota_http_send_snapshot(httpd_req_t *request, const char *h
     int count = snprintf(numbers, sizeof(numbers),
                          "\"boot_confirmed\":%s,\"network_ready\":%s,"
                          "\"max_image_size\":%" PRIu32 ",\"rollback_enabled\":%s,"
-                         "\"received_bytes\":%" PRIu32 ",\"total_bytes\":%" PRIu32 ",\"percent\":%u}",
+                         "\"received_bytes\":%" PRIu32 ",\"total_bytes\":%" PRIu32
+                         ",\"percent\":%u,\"release_id\":%" PRIu64 "}",
                          snapshot->boot_confirmed ? "true" : "false",
                          snapshot->network_ready ? "true" : "false", snapshot->max_image_size,
                          snapshot->rollback_enabled ? "true" : "false", snapshot->received_bytes,
-                         snapshot->total_bytes, snapshot->percent);
+                         snapshot->total_bytes, snapshot->percent, snapshot->release_id);
     if (count < 0 || (size_t)count >= sizeof(numbers)) {
         return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA status encoding failed");
     }
@@ -773,7 +1253,7 @@ static esp_err_t reject_upload(httpd_req_t *request, const char *http_status,
 }
 
 /** @brief 必须有十进制 Content-Length，禁止 multipart、chunked 或隐式长度。 */
-static bool upload_headers_valid(httpd_req_t *request)
+static bool ota_headers_valid(httpd_req_t *request, const char *expected_type, size_t minimum)
 {
     char transfer_encoding[2];
     if (httpd_req_get_hdr_value_str(request, "Transfer-Encoding", transfer_encoding,
@@ -784,7 +1264,7 @@ static bool upload_headers_valid(httpd_req_t *request)
     char content_type[64];
     if (type_length == 0 || type_length >= sizeof(content_type) ||
         httpd_req_get_hdr_value_str(request, "Content-Type", content_type, sizeof(content_type)) != ESP_OK ||
-        strcasecmp(content_type, "application/octet-stream") != 0) {
+        strcasecmp(content_type, expected_type) != 0) {
         return false;
     }
     size_t length_length = httpd_req_get_hdr_value_len(request, "Content-Length");
@@ -800,16 +1280,58 @@ static bool upload_headers_valid(httpd_req_t *request)
         }
         length = length * 10 + (unsigned)(*p - '0');
     }
-    return length == request->content_len && length >= BYAI_OTA_PREFIX_SIZE;
+    return length == request->content_len && length >= minimum;
 }
 
+static esp_err_t github_handler(httpd_req_t *request)
+{
+    if (request->content_len > 128 || !ota_headers_valid(request, "application/json", 1)) {
+        return reject_upload(request, "400 Bad Request", ESP_ERR_INVALID_ARG, "需要有效的 JSON 升级请求");
+    }
+    char body[129];
+    size_t used = 0;
+    TickType_t start = xTaskGetTickCount();
+    while (used < request->content_len) {
+        if ((TickType_t)(xTaskGetTickCount() - start) > pdMS_TO_TICKS(3000))
+            return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "request timeout");
+        int nread = httpd_req_recv(request, body + used, request->content_len - used);
+        if (nread <= 0) return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "short request");
+        used += (size_t)nread;
+    }
+    body[used] = '\0';
+    cJSON *json = cJSON_ParseWithLengthOpts(body, used + 1, NULL, true);
+    cJSON *id = json == NULL ? NULL : cJSON_GetObjectItemCaseSensitive(json, "release_id");
+    if (json == NULL || !cJSON_IsObject(json) || json->child == NULL ||
+        json->child->next != NULL || !cJSON_IsNumber(id) || id->valuedouble < 1 ||
+        id->valuedouble > 9007199254740991.0 ||
+        (double)(uint64_t)id->valuedouble != id->valuedouble) {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "expected {\"release_id\":number}");
+    }
+    uint64_t release_id = (uint64_t)id->valuedouble;
+    cJSON_Delete(json);
+    esp_err_t error = byai_ota_upload_claim(0, OTA_SOURCE_GITHUB, release_id);
+    if (error != ESP_OK) return reject_upload(request,
+        error == ESP_ERR_OTA_ALREADY_IN_PROGRESS ? "409 Conflict" : "503 Service Unavailable",
+        error, "GitHub OTA service unavailable or busy");
+    ota_job_t job = {.source = OTA_SOURCE_GITHUB, .value.release_id = release_id};
+    error = byai_ota_upload_submit(&job);
+    if (error != ESP_OK) {
+        byai_ota_upload_fail(error, "GitHub OTA queue failed");
+        byai_ota_upload_release();
+        return reject_upload(request, "503 Service Unavailable", error, "queue unavailable");
+    }
+    byai_ota_snapshot_t snapshot;
+    byai_ota_snapshot_get(&snapshot);
+    return byai_ota_http_send_snapshot(request, "202 Accepted", &snapshot);
+}
 static esp_err_t upload_handler(httpd_req_t *request)
 {
-    if (!upload_headers_valid(request)) {
+    if (!ota_headers_valid(request, "application/octet-stream", BYAI_OTA_PREFIX_SIZE)) {
         return reject_upload(request, "400 Bad Request", ESP_ERR_INVALID_ARG,
                              "需要 application/octet-stream、Content-Length 及至少 288 字节的应用镜像");
     }
-    esp_err_t error = byai_ota_upload_claim(request->content_len);
+    esp_err_t error = byai_ota_upload_claim(request->content_len, OTA_SOURCE_LOCAL, 0);
     if (error != ESP_OK) {
         const char *http_status = "503 Service Unavailable";
         const char *message = "本地启动尚未确认或 OTA 服务尚未就绪";
@@ -852,7 +1374,8 @@ static esp_err_t upload_handler(httpd_req_t *request)
     }
     s_upload_session.request = async_request;
     s_upload_session.release_owner_on_close = false;
-    error = byai_ota_upload_submit(async_request);
+    ota_job_t job = {.source = OTA_SOURCE_LOCAL, .value.request = async_request};
+    error = byai_ota_upload_submit(&job);
     if (error != ESP_OK) {
         s_upload_session.release_owner_on_close = true;
         byai_ota_upload_fail(error, "上传工作队列交接失败");
@@ -904,6 +1427,7 @@ static esp_err_t byai_ota_http_start(void)
         {.uri = "/ota", .method = HTTP_GET, .handler = page_handler},
         {.uri = "/api/ota/status", .method = HTTP_GET, .handler = status_handler},
         {.uri = "/api/ota/upload", .method = HTTP_POST, .handler = upload_handler},
+        {.uri = "/api/ota/github", .method = HTTP_POST, .handler = github_handler},
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); ++i) {
         error = httpd_register_uri_handler(s_http_server, &routes[i]);

@@ -7,6 +7,16 @@ on:
         type: boolean
         required: false
         default: false
+    outputs:
+      artifact_name:
+        description: Name of the artifact produced by this exact workflow run.
+        value: ${{ jobs.build.outputs.artifact_name }}
+      source_sha:
+        description: Full commit SHA used for this firmware build.
+        value: ${{ jobs.build.outputs.source_sha }}
+      app_version:
+        description: Application version embedded in this firmware build.
+        value: ${{ jobs.build.outputs.app_version }}
 
 permissions:
   contents: read
@@ -17,6 +27,10 @@ defaults:
 
 jobs:
   build:
+    outputs:
+      artifact_name: ${{ steps.release-meta.outputs.artifact_name }}
+      source_sha: ${{ steps.release-meta.outputs.source_sha }}
+      app_version: ${{ steps.release-meta.outputs.app_version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
@@ -60,11 +74,62 @@ jobs:
           restore-keys: ${{ steps.cache-key.outputs.prefix }}-
           fail-on-cache-miss: false
 
-      - name: Build firmware
+      - name: Compute firmware release identity
+        id: release-meta
         working-directory: firmware
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           . "$IDF_PATH/export.sh"
-          "$IDF_PYTHON_ENV_PATH/bin/python" "$IDF_PATH/tools/idf.py" build
+          source_sha="$(git rev-parse HEAD)"
+          short_sha="${source_sha:0:12}"
+          case "$EVENT_NAME:$REF_TYPE" in
+            push:branch)
+              source="$REF_NAME"
+              case "$source" in dev|main) ;; *) echo "Unsupported release branch: $source" >&2; exit 1 ;; esac
+              source_ref="$source"
+              ;;
+            push:tag)
+              source=tag
+              source_ref="$REF_NAME"
+              ;;
+            pull_request:*)
+              source="$BASE_REF"
+              case "$source" in dev|main) ;; *) echo "Unsupported PR base: $source" >&2; exit 1 ;; esac
+              source_ref="$source"
+              ;;
+            workflow_dispatch:*)
+              if [[ "$REF_NAME" == main ]]; then source=main; else source=dev; fi
+              source_ref="$source"
+              ;;
+            *)
+              echo "Unsupported build event: $EVENT_NAME ($REF_TYPE)" >&2
+              exit 1
+              ;;
+          esac
+          app_version="$(PYTHONPATH=scripts "$IDF_PYTHON_ENV_PATH/bin/python" -c 'import sys; from package_ota import application_version; print(application_version(*sys.argv[1:]))' "$source" "$source_ref" "$source_sha")"
+          artifact_name="byai-esp32s3-${source_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "source=$source"
+            echo "source_ref=$source_ref"
+            echo "source_sha=$source_sha"
+            echo "short_sha=$short_sha"
+            echo "app_version=$app_version"
+            echo "artifact_name=$artifact_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build firmware
+        working-directory: firmware
+        env:
+          APP_VERSION: ${{ steps.release-meta.outputs.app_version }}
+          OTA_REPOSITORY: ${{ github.repository }}
+        run: |
+          . "$IDF_PATH/export.sh"
+          "$IDF_PYTHON_ENV_PATH/bin/python" "$IDF_PATH/tools/idf.py" -DPROJECT_VER="$APP_VERSION" -DBYAI_OTA_GITHUB_REPOSITORY="$OTA_REPOSITORY" build
           ccache --show-stats
 
       - name: Check tracked build baseline
@@ -73,6 +138,11 @@ jobs:
       - name: Package firmware images
         id: package
         working-directory: firmware
+        env:
+          SOURCE: ${{ steps.release-meta.outputs.source }}
+          SOURCE_REF: ${{ steps.release-meta.outputs.source_ref }}
+          SOURCE_SHA: ${{ steps.release-meta.outputs.source_sha }}
+          APP_VERSION: ${{ steps.release-meta.outputs.app_version }}
         run: |
           . "$IDF_PATH/export.sh"
           source_sha="$(git rev-parse HEAD)"
@@ -85,12 +155,13 @@ jobs:
             fi
           done
           cp build/BYAI.bin "build/BYAI_firmware_${short_sha}.bin"
+          "$IDF_PYTHON_ENV_PATH/bin/python" scripts/package_ota.py --image "build/BYAI_firmware_${short_sha}.bin" --output build/BYAI_OTA.json --source "$SOURCE" --ref "$SOURCE_REF" --commit "$SOURCE_SHA" --version "$APP_VERSION"
           "$IDF_PYTHON_ENV_PATH/bin/python" "$IDF_PATH/tools/idf.py" merge-bin -f raw -o "BYAI_full_flash_${short_sha}.bin"
           (
             cd build
             sha256sum "BYAI_firmware_${short_sha}.bin" "BYAI_full_flash_${short_sha}.bin" > "BYAI_SHA256SUMS_${short_sha}.txt"
             sha256sum -c "BYAI_SHA256SUMS_${short_sha}.txt"
-            for file in "BYAI_firmware_${short_sha}.bin" "BYAI_full_flash_${short_sha}.bin" "BYAI_SHA256SUMS_${short_sha}.txt"; do
+            for file in "BYAI_firmware_${short_sha}.bin" "BYAI_full_flash_${short_sha}.bin" "BYAI_SHA256SUMS_${short_sha}.txt" BYAI_OTA.json; do
               if [[ ! -f "$file" || ! -s "$file" ]]; then
                 echo "Missing CI artifact: build/$file" >&2
                 exit 1
@@ -107,19 +178,21 @@ jobs:
           - `BYAI_firmware_<sha>.bin`：应用镜像，不含 bootloader 和分区表。
           - `BYAI_full_flash_<sha>.bin`：按本次 SDK flash_args 合并的镜像，不填满整个 Flash。
           - `BYAI_SHA256SUMS_<sha>.txt`：两个镜像的 SHA-256 校验文件。
+          - `BYAI_OTA.json`：OTA 版本、来源与应用镜像摘要。
 
           整片合并镜像覆盖 bootloader 至应用末尾的连续地址区间，烧录前备份该区间内的 NVS 数据。
-          CI 流程在产物上传和缓存保存后结束。
+          dev、main 与普通 tag 的成功推送会尝试发布 Release；PR 和手动运行只构建。
           SUMMARY
 
       - name: Upload firmware images
         uses: actions/upload-artifact@v4
         with:
-          name: byai-esp32s3-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ steps.release-meta.outputs.artifact_name }}
           path: |
             firmware/build/BYAI_firmware_${{ steps.package.outputs.short_sha }}.bin
             firmware/build/BYAI_full_flash_${{ steps.package.outputs.short_sha }}.bin
             firmware/build/BYAI_SHA256SUMS_${{ steps.package.outputs.short_sha }}.txt
+            firmware/build/BYAI_OTA.json
           retention-days: 14
           if-no-files-found: error
           overwrite: false

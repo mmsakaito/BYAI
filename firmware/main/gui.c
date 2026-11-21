@@ -175,6 +175,9 @@ static void update_ota_panel(void)
     case BYAI_OTA_RECEIVING:
         snprintf(panel.ota_text, sizeof(panel.ota_text), "Receiving %u%%", status.percent);
         break;
+    case BYAI_OTA_DOWNLOADING:
+        snprintf(panel.ota_text, sizeof(panel.ota_text), "Downloading %u%%", status.percent);
+        break;
     case BYAI_OTA_VERIFYING:
         snprintf(panel.ota_text, sizeof(panel.ota_text), "Verifying...");
         break;

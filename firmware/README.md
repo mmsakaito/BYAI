@@ -4,28 +4,25 @@
 
 ## CI 与构建产物
 
-[`Firmware CI`](../.github/workflows/firmware-ci.yml) 在目标为 `dev`、`main` 的 PR
-和这两个分支的推送中按变更路径触发，并行执行电源状态机主机测试与 ESP32-S3 固件构建。
-仅修改 Markdown、`docs/`、Issue/PR 模板、许可证、Git 忽略规则、编辑器配置、根目录
-`LOGO.png`、`ENV.local.example` 或安装配置 `config.toml` 时跳过整个工作流。
-混合变更只要包含排除范围以外的文件就会运行；固件源码（含仅注释修改）、构建配置、
-依赖锁文件、分区表、固件资源、子模块版本及工作流仍会触发。手动运行不受路径过滤限制。
-固件使用固定 digest 的官方 ESP-IDF `v6.1` 容器，保留已跟踪的 `sdkconfig`、
-依赖锁文件和 LVGL 子模块版本；构建改变配置或锁文件时直接失败。
-容器启动后仅将本次 checkout 路径加入 Git 安全目录，并按容器内工作区路径定位 ccache。
+[`Firmware CI`](../.github/workflows/firmware-ci.yml) 在 `dev`、`main` 的每次推送和普通 tag
+推送时构建固件并发布 Release；目标为这两个分支的 PR 按变更路径触发，只构建不发布。
+一次 push 包含多个提交时，构建并发布该次 push 的 HEAD。手动运行只构建。
+固件使用固定 digest 的官方 ESP-IDF `v6.1` 容器；构建改变已跟踪配置或依赖锁文件时失败。
 
-- 所有运行均可恢复 ccache；仅 `dev`、`main` 推送在构建、打包和上传成功后保存缓存。
-  PR 和手动运行不保存；缓存未命中时正常全量构建，旧缓存由 GitHub 自动淘汰。
-- 成功的固件 job 上传保留 14 天的 Actions artifact：
-  `BYAI_firmware_<sha>.bin`（应用镜像）、
-  `BYAI_full_flash_<sha>.bin`（按本次 SDK 参数合并的 bootloader、分区表与应用镜像）、
-  `BYAI_SHA256SUMS_<sha>.txt`（两个镜像的校验文件）；`<sha>` 为 checkout 提交的前 12 位。
-- 下载并解压后，在同一目录运行 `sha256sum -c BYAI_SHA256SUMS_<sha>.txt` 校验。
-  合并镜像覆盖从 bootloader 到应用末尾的连续地址区间，烧录前备份该区间内的 NVS 数据。
+- 成功构建上传保留 14 天的 Actions artifact：`BYAI_firmware_<sha>.bin` 应用镜像、
+  `BYAI_full_flash_<sha>.bin` 合并镜像、`BYAI_SHA256SUMS_<sha>.txt` 和 `BYAI_OTA.json`。
+  `<sha>` 是 checkout 提交的前 12 位；artifact 仅用于 CI job 交接。
+- dev/main 构建发布为 prerelease，普通 tag 发布为正式 Release。设备匿名读取公开 Release；
+  设备不使用或保存 GitHub Token。校验下载文件可运行 `sha256sum -c BYAI_SHA256SUMS_<sha>.txt`。
+  合并镜像覆盖 bootloader 到应用末尾的连续地址区间，烧录前备份该区间内的 NVS 数据。
+- 发布 job 使用仓库 secret `OTA_RELEASE_TOKEN`。公开 fork 的维护者需创建仅授权该 fork
+  Contents 和 Workflows 读写权限的 fine-grained PAT，在仓库 Settings → Secrets and variables →
+  Actions 新增同名 secret；不要把令牌写入固件、Issue、PR 或日志。缺少 secret 时构建产物
+  仍保留，发布 job 失败。定期轮换或过期后更新 secret。
+- CI 从 `GITHUB_REPOSITORY` 编入仓库身份，fork 构建指向其自己的公开仓库。本地为 fork 构建时
+  传入 `-DBYAI_OTA_GITHUB_REPOSITORY="owner/repo"`；不传时默认上游 `mmsakaito/BYAI`。
 
-CI 使用仓库 checkout 和公开依赖，生成保留当前硬件调试配置的测试构建；
-流程在产物上传和缓存保存后结束。实板验收按板卡、配置和实际现象记录到 PR 评论。
-手动运行入口需 workflow 已进入默认分支；构建和下载权限由仓库 Actions 策略控制。
+构建保留仓库当前硬件调试配置；实板验收按板卡、配置和实际现象记录。
 
 ## 本地 OTA 布局与首次迁移
 
@@ -109,11 +106,22 @@ Kconfig 字符串会编入固件镜像；profile manager 也会将凭据保存�
 |`GET /ota`|本地升级页面|
 |`GET /api/ota/status`|本次启动标识、版本和 ELF 摘要、运行/备用分区、容量、确认状态、进度及错误|
 |`POST /api/ota/upload`|`application/octet-stream` 原始应用镜像，必须有 Content-Length；异步接收，状态查询使用另一连接|
+|`POST /api/ota/github`|`application/json`，请求体 `{"release_id":123}`；202 表示已接受事务，继续查询实际结果|
 
 启动未确认或缺少可用双槽时拒绝写入。接收、校验和等待重启期间的第二份上传返回
 409；非法类型/长度返回 400，超过槽容量返回 413，镜像校验失败返回 422，
 接收/写入失败返回 500。接收连续 30 秒无进展则终止；未成功完成校验不选择新启动槽。
 失败请求结束后可以重新上传。成功提交启动槽后，由同一 worker 延时两秒重启。
+
+网页的 GitHub 区域按 dev、main、tag 展示设备编译时仓库中的候选版本，点击安装后由设备
+通过 HTTPS 下载 Release 附件。缺少 manifest、应用附件或超过槽容量的候选不可安装。
+GitHub 下载与本地上传共用事务；下载、写入、校验或等待重启时，另一份升级请求返回 409。
+设备需能访问 GitHub 并同步时间，网页也需能读取 GitHub API；离线、限流、TLS 或下载错误
+会结束本次 GitHub 事务并保留原启动镜像。可以继续使用局域网本地上传。
+
+设备校验 Release、tag 对应的实际提交、manifest 和应用文件 SHA-256；镜像前缀通过后才写备用槽。
+这些检查验证所选仓库内容的一致性，设备信任该仓库的发布权限。网页最终成功仍需新启动标识、
+首启确认与目标 ELF 摘要一致。若未捕获目标摘要，则显示结果待确认，不凭 HTTP 202 判定成功。
 
 页面在会话存储中保存目标版本、目标 ELF 摘要与旧启动标识。响应丢失后继续查询；
 只有启动标识改变、首启确认成功且运行摘要匹配目标才报告成功。
@@ -150,7 +158,8 @@ NO0001（ESP32-S3、ESP-IDF v6.1）已完成双槽迁移、NVS/PHY 原始字节�
 首启初始化失败的 `ota-check-bad` 自动回退到 `ota-check-a`/`ota_0`。验收结束时设备
 运行已确认的 `ota-check-a`，状态为 `idle`、`network_ready=true`、回滚已启用。
 
-A 阶段本地 OTA 硬件矩阵已完成。GitHub 发现、下载与发布属于后续 B 阶段，不包含在本次实现中。
+A 阶段本地 OTA 硬件矩阵已完成。B 阶段 GitHub 路径的主机、构建、发布及实板结果分别记录，
+未完成真实 GitHub 升级与后续本地网页上传回归前，不视为 B 阶段实板验收通过。
 
 ## 屏幕彩条测试
 

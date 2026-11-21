@@ -18,27 +18,18 @@ on:
       - 'config.toml'
   push:
     branches: [dev, main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.github/ISSUE_TEMPLATE/**'
-      - '**/LICENSE'
-      - '**/LICENSE.*'
-      - '**/.gitignore'
-      - '**/.clang-format'
-      - '**/.clangd'
-      - '**/.vscode/**'
-      - 'LOGO.png'
-      - 'ENV.local.example'
-      - 'config.toml'
+    tags:
+      - '**'
+      - '!ota-dev-*'
+      - '!ota-main-*'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.ref, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   host-tests:
@@ -53,7 +44,56 @@ jobs:
       - name: Test power state on host
         run: bash firmware/tests/power_state/run.sh
 
+      - name: Test OTA manifest packaging
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s firmware/scripts -p 'test_package_ota.py'
+
+      - name: Test OTA release publication
+        run: node firmware/scripts/test_publish_ota.js
+
   firmware:
     uses: ./.github/workflows/firmware-build.yml
     with:
       refresh_cache: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main') }}
+
+  publish:
+    needs: [host-tests, firmware]
+    if: ${{ github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: ota-release-${{ github.repository }}-${{ github.ref_type == 'tag' && github.ref_name || format('ota-{0}-{1}', github.ref_name, needs.firmware.outputs.source_sha) }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out release script
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.firmware.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Check release credential
+        env:
+          OTA_RELEASE_TOKEN: ${{ secrets.OTA_RELEASE_TOKEN }}
+        run: |
+          if [[ -z "$OTA_RELEASE_TOKEN" ]]; then
+            echo 'Configure the OTA_RELEASE_TOKEN repository secret before publishing.' >&2
+            exit 1
+          fi
+
+      - name: Download this build's firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.firmware.outputs.artifact_name }}
+          path: ota-artifact
+
+      - name: Publish verified OTA release
+        uses: actions/github-script@v7
+        env:
+          OTA_SOURCE_SHA: ${{ needs.firmware.outputs.source_sha }}
+          OTA_APP_VERSION: ${{ needs.firmware.outputs.app_version }}
+          OTA_REF_NAME: ${{ github.ref_name }}
+          OTA_REF_TYPE: ${{ github.ref_type }}
+        with:
+          github-token: ${{ secrets.OTA_RELEASE_TOKEN }}
+          script: |
+            const publish = require(`${process.env.GITHUB_WORKSPACE}/.github/workflows/publish-ota.js`);
+            await publish({ github, context, core });

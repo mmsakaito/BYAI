@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BYAI 固件升级</title>
 <style>
-:root{color-scheme:light dark;font:16px/1.6 system-ui,sans-serif}body{max-width:760px;margin:40px auto;padding:0 20px}h1{font-size:1.7rem}section{border:1px solid #8886;border-radius:10px;padding:20px;margin:20px 0}dl{display:grid;grid-template-columns:9em 1fr;gap:8px}dt{opacity:.7}dd{margin:0;overflow-wrap:anywhere}code{font-size:.85rem}label{display:block;margin-bottom:12px}button,input{font:inherit;max-width:100%}button{padding:8px 18px;cursor:pointer}button:disabled{cursor:default}progress{width:100%;height:20px}small{display:block;opacity:.75}.result{white-space:pre-wrap;overflow-wrap:anywhere}#connection{font-size:.9rem} @media(max-width:520px){body{margin:20px auto}dl{grid-template-columns:1fr;gap:2px}dd{margin-bottom:8px}}
+:root{color-scheme:light dark;font:16px/1.6 system-ui,sans-serif}body{max-width:760px;margin:40px auto;padding:0 20px}h1{font-size:1.7rem}section{border:1px solid #8886;border-radius:10px;padding:20px;margin:20px 0}dl{display:grid;grid-template-columns:9em 1fr;gap:8px}dt{opacity:.7}dd{margin:0;overflow-wrap:anywhere}code{font-size:.85rem}label{display:block;margin-bottom:12px}button,input{font:inherit;max-width:100%}button{padding:8px 18px;cursor:pointer}button:disabled{cursor:default}progress{width:100%;height:20px}small{display:block;opacity:.75}.result{white-space:pre-wrap;overflow-wrap:anywhere}#connection{font-size:.9rem}@media(max-width:520px){body{margin:20px auto}dl{grid-template-columns:1fr;gap:2px}dd{margin-bottom:8px}}
 </style>
 </head>
 <body>
@@ -14,15 +14,16 @@
 <section aria-labelledby="device-title">
 <h2 id="device-title">当前设备</h2>
 <dl>
-<dt>运行版本</dt><dd id="version">--</dd>
-<dt>运行镜像摘要</dt><dd><code id="digest">--</code></dd>
-<dt>运行 / 备用分区</dt><dd id="partitions">--</dd>
-<dt>镜像容量上限</dt><dd id="capacity">--</dd>
-<dt>首启回退</dt><dd id="rollback">--</dd>
-<dt>本次启动</dt><dd id="boot">--</dd>
-<dt>设备状态</dt><dd id="state">--</dd>
-</dl>
-<p id="device-message"></p>
+<dt>运行版本</dt><dd id="version">--</dd><dt>运行镜像摘要</dt><dd><code id="digest">--</code></dd>
+<dt>运行 / 备用分区</dt><dd id="partitions">--</dd><dt>镜像容量上限</dt><dd id="capacity">--</dd>
+<dt>首启回退</dt><dd id="rollback">--</dd><dt>本次启动</dt><dd id="boot">--</dd><dt>设备状态</dt><dd id="state">--</dd>
+</dl><p id="device-message"></p>
+</section>
+<section aria-labelledby="github-title">
+<h2 id="github-title">GitHub 固件</h2>
+<p>匿名读取设备对应公开仓库中的 Release。安装前请确认候选版本和来源。</p>
+<div id="github-groups"></div><button id="load-more" type="button" hidden>继续加载</button>
+<p id="github-message" role="status">等待设备仓库身份…</p>
 </section>
 <section aria-labelledby="upload-title">
 <h2 id="upload-title">上传应用镜像</h2>
@@ -32,202 +33,248 @@
 <p id="transfer-label">浏览器传输：0%</p><progress id="transfer" max="100" value="0" aria-labelledby="transfer-label"></progress>
 <p id="device-progress-label">设备接收 / 写入：0 / 0 字节（0%）</p><progress id="device-progress" max="100" value="0" aria-labelledby="device-progress-label"></progress>
 <small>传输达到 100% 后，设备仍须完成镜像校验、重启和首启确认。</small>
-<p id="result" class="result" role="status" aria-live="polite">等待设备状态。</p>
-<button id="query" type="button">立即查询</button>
+<p id="result" class="result" role="status" aria-live="polite">等待设备状态。</p><button id="query" type="button">立即查询</button>
 </section>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
 const storageKey = 'byai-ota-pending';
-const activeStates = new Set(['receiving', 'verifying', 'rebooting']);
-const stateNames = {idle:'空闲',receiving:'接收 / 写入中',verifying:'校验中',rebooting:'等待重启',failed:'失败'};
-let current = null, connected = false, uploading = false, polling = false, pending = null;
+const activeStates = new Set(['receiving','downloading','verifying','rebooting']);
+const stateNames = {idle:'空闲',receiving:'接收 / 写入中',downloading:'下载 / 写入中',verifying:'校验中',rebooting:'等待重启',failed:'失败'};
+let current = null, repository = '', connected = false, uploading = false, installing = false, polling = false, pending = null, discovery = null;
 try {
     pending = JSON.parse(sessionStorage.getItem(storageKey));
-    if (pending && (typeof pending.oldBoot !== 'string' || !/^[0-9a-f]{64}$/.test(pending.targetSha) ||
-        !/^[0-9a-f]{64}$/.test(pending.oldSha) || !Number.isFinite(pending.started))) {
+    if (pending && (typeof pending.oldBoot !== 'string' || !/^[0-9a-f]{64}$/.test(pending.oldSha || '') ||
+        (pending.source === 'github' ? (!Number.isSafeInteger(pending.releaseId) || pending.releaseId <= 0 ||
+            (pending.targetSha !== '' && !/^[0-9a-f]{64}$/.test(pending.targetSha || ''))) :
+            (!/^[0-9a-f]{64}$/.test(pending.targetSha || '') || !Number.isFinite(pending.size))) || !Number.isFinite(pending.started))) {
         pending = null;
         sessionStorage.removeItem(storageKey);
     }
-} catch (_) {
-    pending = null;
-}
+} catch (_) { pending = null; }
 function savePending() {
-    if (pending) sessionStorage.setItem(storageKey, JSON.stringify(pending));
-    else sessionStorage.removeItem(storageKey);
+    try { if (pending) sessionStorage.setItem(storageKey, JSON.stringify(pending)); else sessionStorage.removeItem(storageKey); }
+    catch (_) { showResult('浏览器会话存储不可用；升级结果可能无法跨页面恢复。'); }
 }
 function showResult(message) { $('result').textContent = message; }
+function waitForResult() { if (pending && !pending.waitSince) { pending.waitSince = Date.now(); savePending(); } }
 function updateControls() {
-    const disabled = !connected || !current || !current.boot_confirmed || !current.max_image_size ||
-        activeStates.has(current.state) || uploading || !!pending;
-    $('file').disabled = disabled;
-    $('upload').disabled = disabled || !$('file').files.length;
-}
-function waitForResult() {
-    if (pending && !pending.waitSince) {
-        pending.waitSince = Date.now();
-        savePending();
-    }
+    const blocked = !connected || !current || !current.boot_confirmed || !current.max_image_size ||
+        activeStates.has(current.state) || uploading || installing || !!pending;
+    $('file').disabled = blocked;
+    $('upload').disabled = blocked || !$('file').files.length;
+    document.querySelectorAll('.github-install').forEach(button => button.disabled = blocked || button.dataset.enabled !== '1');
 }
 function reconcile(status) {
     if (!pending) return;
-    if (status.boot_id !== pending.oldBoot) {
-        if (!status.boot_confirmed) {
-            waitForResult();
-            showResult(Date.now() - pending.waitSince >= 60000 ?
-                '结果待确认：设备已重启，但尚未完成首启确认。页面继续查询。' :
-                '设备已重启，正在等待首启确认。');
-            return;
-        }
-        if (status.current_elf_sha256 === pending.targetSha) {
-            showResult(`升级成功：${status.current_version}。新启动已确认，运行镜像摘要与目标一致。`);
-        } else if (status.current_elf_sha256 === pending.oldSha) {
-            showResult(`升级未生效/已回退。实际运行版本：${status.current_version}。`);
-        } else {
-            showResult(`运行镜像与所选目标不一致。实际版本：${status.current_version}，摘要：${status.current_elf_sha256}。`);
-        }
-        pending = null;
-        savePending();
-        return;
+    const sameBoot = status.boot_id === pending.oldBoot;
+    if (pending.source === 'github' && sameBoot && status.state === 'failed' && status.release_id === pending.releaseId) {
+        showResult(`${status.message || 'GitHub 升级失败'}${status.error ? '：' + status.error : ''}。可重新选择固件。`);
+        pending = null; savePending(); return;
     }
-    if (activeStates.has(status.state) && status.source === 'local' &&
-        status.total_bytes === pending.size && (!status.target_elf_sha256 || status.target_elf_sha256 === pending.targetSha)) {
+    const github = sameBoot && pending.source === 'github' && status.source === 'github' &&
+        status.release_id === pending.releaseId && activeStates.has(status.state);
+    const local = sameBoot && pending.source !== 'github' && status.source === 'local' && activeStates.has(status.state) &&
+        status.total_bytes === pending.size && (!status.target_elf_sha256 || status.target_elf_sha256 === pending.targetSha);
+    if (github || local) {
         pending.observed = true;
+        if (github && /^[0-9a-f]{64}$/.test(status.target_elf_sha256 || '')) pending.targetSha = status.target_elf_sha256;
         savePending();
-        if (status.state === 'rebooting') {
-            waitForResult();
-            showResult('镜像已提交，等待设备重启并核对实际运行摘要。');
-        } else {
-            showResult(status.state === 'verifying' ? '正在校验完整镜像，尚未确认升级结果。' : '设备正在接收并写入镜像。');
-        }
-    } else if (status.state === 'failed' && pending.observed && !uploading) {
-        showResult(`${status.message}：${status.error}。可重新选择镜像上传。`);
-        pending = null;
-        savePending();
+        if (status.state === 'rebooting') { waitForResult(); showResult('镜像已提交，等待设备重启并核对实际运行摘要。'); }
+        else showResult(status.state === 'verifying' ? '正在校验完整镜像，尚未确认升级结果。' : github ? '设备正在下载并写入镜像。' : '设备正在接收并写入镜像。');
         return;
     }
-    if (!uploading && pending && pending.waitSince && Date.now() - pending.waitSince >= 60000) {
-        showResult('结果待确认：60 秒内未确认目标镜像运行。页面继续查询，也可点击“立即查询”；请核对设备供电和网络。');
+    if (sameBoot && pending.source !== 'github' && status.state === 'failed' && pending.observed && !uploading) {
+        showResult(`${status.message}：${status.error}。可重新选择镜像上传。`); pending = null; savePending(); return;
     }
+    if (sameBoot) return;
+    if (!pending.targetSha) { waitForResult(); showResult(`结果待确认：未取得目标镜像摘要。实际版本：${status.current_version}。页面继续查询。`); return; }
+    if (!status.boot_confirmed) { waitForResult(); showResult(Date.now()-pending.waitSince>=60000?'结果待确认：设备尚未完成首启确认。页面继续查询。':'设备已重启，正在等待首启确认。'); return; }
+    if (status.current_elf_sha256 === pending.targetSha) showResult(`升级成功：${status.current_version}。新启动已确认，运行镜像摘要与目标一致。`);
+    else if (status.current_elf_sha256 === pending.oldSha) showResult(`升级未生效/已回退。实际运行版本：${status.current_version}。`);
+    else showResult(`运行镜像与所选目标不一致。实际版本：${status.current_version}，摘要：${status.current_elf_sha256}。`);
+    pending = null; savePending();
+}
+function resetDiscovery() {
+    discovery = {releaseUrl:null,tagUrl:null,releasesDone:false,tagsDone:false,loading:false,items:new Map(),seenIds:new Set()};
+    $('github-groups').replaceChildren(); $('load-more').hidden = true;
 }
 function render(status) {
     current = status;
-    $('version').textContent = status.current_version;
-    $('digest').textContent = status.current_elf_sha256;
+    $('version').textContent = status.current_version || '--'; $('digest').textContent = status.current_elf_sha256 || '--';
     $('partitions').textContent = `${status.running_partition || '--'} / ${status.update_partition || '无备用槽，需迁移'}`;
-    $('capacity').textContent = `${status.max_image_size.toLocaleString()} 字节`;
+    $('capacity').textContent = `${Number(status.max_image_size || 0).toLocaleString()} 字节`;
     $('rollback').textContent = status.rollback_enabled ? '已启用' : '未启用';
-    $('boot').textContent = `${status.boot_id}（${status.boot_confirmed ? '已确认' : '待确认'}）`;
-    $('state').textContent = stateNames[status.state] || status.state;
-    $('device-message').textContent = status.message + (status.error ? `：${status.error}` : '');
-    $('device-progress').value = status.percent;
-    $('device-progress-label').textContent = `设备接收 / 写入：${status.received_bytes.toLocaleString()} / ${status.total_bytes.toLocaleString()} 字节（${status.percent}%）`;
-    reconcile(status);
-    updateControls();
+    $('boot').textContent = `${status.boot_id || '--'}（${status.boot_confirmed ? '已确认' : '待确认'}）`;
+    $('state').textContent = stateNames[status.state] || status.state || '--';
+    $('device-message').textContent = (status.message || '') + (status.error ? `：${status.error}` : '');
+    $('device-progress').value = Number(status.percent || 0);
+    $('device-progress-label').textContent = `设备接收 / 写入：${Number(status.received_bytes || 0).toLocaleString()} / ${Number(status.total_bytes || 0).toLocaleString()} 字节（${Number(status.percent || 0)}%）`;
+    reconcile(status); updateControls();
+    if (typeof status.github_repository === 'string' && status.github_repository !== repository) {
+        repository = status.github_repository; resetDiscovery(); loadDiscovery();
+    }
+    renderDiscovery();
 }
 async function poll() {
     if (polling) return;
-    polling = true;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
+    polling = true; const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 4000);
     try {
-        const response = await fetch('/api/ota/status', {cache:'no-store', signal:controller.signal});
+        const response = await fetch('/api/ota/status',{cache:'no-store',signal:controller.signal});
         if (!response.ok) throw Error(`HTTP ${response.status}`);
-        const status = await response.json();
-        connected = true;
-        $('connection').textContent = status.network_ready ? '设备在线，Wi-Fi 已取得 IP。' : '设备可访问，网络就绪状态正在更新。';
-        render(status);
+        const status = await response.json(); connected = true;
+        $('connection').textContent = status.network_ready ? '设备在线，Wi-Fi 已取得 IP。' : '设备可访问，网络就绪状态正在更新。'; render(status);
     } catch (_) {
-        connected = false;
-        $('connection').textContent = '设备暂不可达，正在继续查询。';
-        if (pending && !uploading) {
-            waitForResult();
-            showResult(Date.now() - pending.waitSince >= 60000 ? '结果待确认：60 秒内设备未恢复。页面继续查询，请核对供电和网络。' : '连接中断，升级结果待设备恢复后核对。');
-        }
+        connected = false; $('connection').textContent = '设备暂不可达，正在继续查询。';
+        if (pending && !uploading) { waitForResult(); showResult(Date.now()-pending.waitSince>=60000?'结果待确认：设备暂不可达。页面继续查询。':'连接中断，升级结果待设备恢复后核对。'); }
         updateControls();
-    } finally {
-        clearTimeout(timer);
-        polling = false;
-    }
+    } finally { clearTimeout(timer); polling = false; }
 }
 async function upload() {
     const file = $('file').files[0];
-    if (!file || !current || uploading || pending || activeStates.has(current.state)) return;
-    if (!file.name.toLowerCase().endsWith('.bin') || file.size < 288) {
-        showResult('请选择至少 288 字节的应用 .bin 文件。');
-        return;
-    }
-    if (file.size > current.max_image_size) {
-        showResult(`文件超过备用分区 ${current.max_image_size.toLocaleString()} 字节容量。`);
-        return;
-    }
-    uploading = true;
-    updateControls();
+    if (!file || !current || uploading || installing || pending || activeStates.has(current.state)) return;
+    if (!file.name.toLowerCase().endsWith('.bin') || file.size < 288) { showResult('请选择至少 288 字节的应用 .bin 文件。'); return; }
+    if (file.size > current.max_image_size) { showResult(`文件超过备用分区 ${Number(current.max_image_size).toLocaleString()} 字节容量。`); return; }
+    uploading = true; updateControls();
     try {
-        const prefix = await file.slice(0, 288).arrayBuffer();
-        const targetSha = Array.from(new Uint8Array(prefix, 176, 32), byte => byte.toString(16).padStart(2, '0')).join('');
-        const versionBytes = new Uint8Array(prefix, 48, 32);
-        const terminator = versionBytes.indexOf(0);
-        const targetVersion = new TextDecoder().decode(versionBytes.subarray(0, terminator < 0 ? 32 : terminator));
-        pending = {oldBoot:current.boot_id, oldSha:current.current_elf_sha256, targetSha, targetVersion,
-            size:file.size, started:Date.now(), waitSince:0, observed:false};
-        savePending();
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/ota/upload');
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.upload.onprogress = event => {
-            const percent = event.lengthComputable ? Math.floor(event.loaded * 100 / event.total) : 0;
-            $('transfer').value = percent;
-            $('transfer-label').textContent = `浏览器传输：${percent}%`;
-        };
-        const transaction = pending;
+        const prefix = await file.slice(0,288).arrayBuffer();
+        const targetSha = Array.from(new Uint8Array(prefix,176,32),b=>b.toString(16).padStart(2,'0')).join('');
+        const versionBytes = new Uint8Array(prefix,48,32), end = versionBytes.indexOf(0);
+        const targetVersion = new TextDecoder().decode(versionBytes.subarray(0,end<0?32:end));
+        pending = {source:'local',oldBoot:current.boot_id,oldSha:current.current_elf_sha256,targetSha,targetVersion,size:file.size,started:Date.now(),waitSince:0,observed:false};
+        savePending(); const transaction = pending, xhr = new XMLHttpRequest();
+        xhr.open('POST','/api/ota/upload'); xhr.setRequestHeader('Content-Type','application/octet-stream');
+        xhr.upload.onprogress = event => { const n=event.lengthComputable?Math.floor(event.loaded*100/event.total):0; $('transfer').value=n; $('transfer-label').textContent=`浏览器传输：${n}%`; };
         xhr.onload = () => {
-            if (pending !== transaction) return;
-            let body = null;
-            try { body = JSON.parse(xhr.responseText); } catch (_) {}
-            if (xhr.status === 200 || (body && body.state === 'rebooting')) {
-                waitForResult();
-                showResult('上传响应已收到，等待重启后的运行镜像确认。');
-            } else if ((xhr.status >= 400 && xhr.status < 500) || xhr.status === 503 ||
-                       (body && body.state === 'failed')) {
-                pending = null;
-                savePending();
-                showResult(body ? `${body.message}：${body.error}` : `上传被拒绝：HTTP ${xhr.status}`);
-            } else {
-                waitForResult();
-                showResult('上传响应无法确认提交结果，继续查询实际运行镜像。');
-            }
+            if (pending !== transaction) return; let body=null; try { body=JSON.parse(xhr.responseText); } catch (_) {}
+            if (xhr.status===200 || (body && body.state==='rebooting')) { waitForResult(); showResult('上传响应已收到，等待重启后的运行镜像确认。'); }
+            else if ((xhr.status>=400 && xhr.status<500) || xhr.status===503 || (body && body.state==='failed')) { pending=null; savePending(); showResult(body?`${body.message||'上传被拒绝'}${body.error?'：'+body.error:''}`:`上传被拒绝：HTTP ${xhr.status}`); }
+            else { waitForResult(); showResult('上传响应无法确认提交结果，继续查询实际运行镜像。'); }
         };
-        xhr.onerror = xhr.ontimeout = xhr.onabort = () => {
-            if (pending !== transaction) return;
-            waitForResult();
-            showResult('上传连接中断，继续查询实际结果。');
-        };
-        xhr.onloadend = () => {
-            uploading = false;
-            updateControls();
-            poll();
-        };
-        $('transfer').value = 0;
-        $('transfer-label').textContent = '浏览器传输：0%';
-        showResult(`正在上传 ${file.name}，目标版本：${targetVersion || '--'}。`);
-        xhr.send(file);
-    } catch (_) {
-        pending = null;
-        uploading = false;
-        showResult('无法读取文件或保存升级身份，请检查文件和浏览器会话存储后重试。');
-        updateControls();
-    }
+        xhr.onerror=xhr.ontimeout=xhr.onabort=()=>{ if(pending===transaction){waitForResult();showResult('上传连接中断，继续查询实际结果。');} };
+        xhr.onloadend=()=>{uploading=false;updateControls();poll();};
+        $('transfer').value=0; $('transfer-label').textContent='浏览器传输：0%';
+        showResult(`正在上传 ${file.name}，目标版本：${targetVersion || '--'}。`); xhr.send(file);
+    } catch (_) { pending=null; uploading=false; showResult('无法读取文件或保存升级身份，请检查文件和浏览器会话存储后重试。'); updateControls(); }
 }
-$('file').addEventListener('change', updateControls);
-$('upload').addEventListener('click', upload);
-$('query').addEventListener('click', poll);
-if (pending) {
-    waitForResult();
-    showResult('已恢复上次升级的身份信息，正在核对实际运行结果。');
-} else showResult('连接成功并完成本地启动确认后，可选择应用镜像。');
-poll();
-setInterval(poll, 1000);
+const githubApi='https://api.github.com';
+function repoUrl(path) { const [owner,name]=repository.split('/'); return `${githubApi}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${path}`; }
+function nextPage(link, endpoint) {
+    const match=/<([^>]+)>;\s*rel="?next"?/i.exec(link||'');
+    if(!match)return null;
+    const candidate=new URL(match[1]), expected=new URL(endpoint);
+    if(candidate.origin!==githubApi || candidate.username || candidate.password || candidate.hash ||
+        candidate.pathname!==expected.pathname ||
+        [...candidate.searchParams.keys()].some(key=>key!=='page'&&key!=='per_page') ||
+        candidate.searchParams.getAll('page').length!==1 ||
+        candidate.searchParams.getAll('per_page').length!==1 ||
+        !/^\d+$/.test(candidate.searchParams.get('page')||'') ||
+        candidate.searchParams.get('per_page')!==expected.searchParams.get('per_page')) {
+        throw Error('GitHub API 返回了不属于设备仓库的分页链接。');
+    }
+    return candidate.href;
+}
+async function githubJson(url) {
+    const response=await fetch(url,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
+    if(response.status===403 || response.status===429){const reset=response.headers.get('X-RateLimit-Reset');throw Error(reset?`GitHub API 限流，预计 ${new Date(Number(reset)*1000).toLocaleTimeString()} 后恢复。`:'GitHub API 请求受限。');}
+    if(response.status===404) throw Error('HTTP 404');
+    if(!response.ok) throw Error(`GitHub API HTTP ${response.status}`);
+    return {data:await response.json(),link:response.headers.get('Link')||''};
+}
+function branchIdentity(release){const m=/^ota-(dev|main)-([0-9a-f]{40})$/.exec(release.tag_name||'');return m?{source:m[1],commit:m[2],version:`${m[1]}-${m[2].slice(0,12)}`}:null;}
+function tagVersion(ref, commit) { return /^[A-Za-z0-9._+-]{1,31}$/.test(ref) ? ref : `tag-${(commit || '').slice(0,12) || 'unknown'}`; }
+function releaseItem(release, tagCommit='') {
+    const branch=branchIdentity(release), assets=release.assets||[], manifests=assets.filter(a=>a.name==='BYAI_OTA.json'), apps=assets.filter(a=>/^BYAI_firmware_[0-9a-f]{12}\.bin$/.test(a.name));
+    const commit=branch?branch.commit:(tagCommit||'');
+    return {id:release.id,source:branch?branch.source:'tag',ref:release.tag_name||'',commit,version:branch?branch.version:tagVersion(release.tag_name||'',commit),published:release.published_at||release.created_at||'',application:apps.length===1?apps[0]:apps.length?false:null,manifest:manifests.length===1?manifests[0]:null,size:apps.length===1?apps[0].size:null,digest:apps.length===1?apps[0].digest:null};
+}
+function addRelease(release){
+    if(!Number.isSafeInteger(release.id)||release.id<1||!release.tag_name||discovery.seenIds.has(release.id))return;
+    discovery.seenIds.add(release.id);
+    const placeholder=discovery.items.get(`tag:${release.tag_name}`);
+    const item=releaseItem(release,placeholder&&placeholder.commit);
+    discovery.items.delete(`tag:${release.tag_name}`);
+    discovery.items.set(`id:${item.id}`,item);
+}
+function addTag(tag){
+    if(!tag.name||/^ota-(dev|main)-[0-9a-f]{40}$/.test(tag.name)||[...discovery.items.values()].some(v=>v.source==='tag'&&v.ref===tag.name))return;
+    const item={id:null,source:'tag',ref:tag.name,commit:tag.commit&&tag.commit.sha||'',version:tagVersion(tag.name,tag.commit&&tag.commit.sha),published:'',application:null,manifest:null,size:null,digest:null};
+    discovery.items.set(`tag:${item.ref}`,item);
+    renderDiscovery();
+    resolveTag(item);
+}
+async function resolveTag(item){
+    try {
+        const {data:release}=await githubJson(repoUrl(`releases/tags/${encodeURIComponent(item.ref)}`));
+        if(!release.draft){const resolved=releaseItem(release,item.commit);discovery.items.delete(`tag:${item.ref}`);discovery.items.set(`id:${resolved.id}`,resolved);}
+    } catch(error) { if(error.message==='HTTP 404') item.noRelease=true; else $('github-message').textContent=error.message; }
+    finally { renderDiscovery(); }
+}
+function reasonFor(item){
+    if(!connected||!current)return '设备状态不可用';
+    if(!current.network_ready)return '设备网络未就绪';
+    if(!current.update_partition||!current.max_image_size)return '设备没有可用备用分区';
+    if(activeStates.has(current.state)||pending||uploading||installing)return '设备 OTA 正在进行'; if(!item.id)return '此 tag 尚无公开 Release';
+    if(!item.manifest)return '缺少或重复 BYAI_OTA.json'; if(item.application===false)return '应用附件重复'; if(!item.application)return '缺少应用固件附件';
+    if(!Number.isSafeInteger(item.size)||item.size<288)return '应用附件大小无效'; if(item.size>current.max_image_size)return '应用附件超过设备备用分区容量'; return '';
+}
+function renderDiscovery(){
+    if(!discovery)return; const groups=new Map([['dev',[]],['main',[]],['tag',[]]]);
+    for(const item of discovery.items.values())groups.get(item.source).push(item);
+    const root=$('github-groups');root.replaceChildren();
+    for(const [source,items] of groups){const section=document.createElement('section'),heading=document.createElement('h3');heading.textContent=source==='tag'?'Tag':source;section.append(heading);
+        if(!items.length){const p=document.createElement('p');p.textContent='尚无已发现的候选版本。';section.append(p);}
+        for(const item of items){const card=document.createElement('article'),info=document.createElement('p');
+            info.textContent=`${item.ref} · ${item.version} · ${item.commit||'commit 未知'} · ${item.published||'发布时间未知'} · ${item.size?item.size.toLocaleString()+' 字节':'无应用附件'}${item.digest?' · API digest '+item.digest:''}`;
+            const reason=reasonFor(item),availability=document.createElement('p');availability.textContent=reason?`不可升级：${reason}`:'可安装';
+            const button=document.createElement('button');button.type='button';button.className='github-install';button.dataset.enabled=reason?'':'1';button.textContent='安装此版本';button.addEventListener('click',()=>installGithub(item));
+            card.append(info,availability,button);section.append(card);
+        }root.append(section);
+    } updateControls();
+}
+async function loadDiscovery(){
+    if(!repository||!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)){$('github-message').textContent='设备未提供有效的 GitHub 仓库身份。';return;}
+    if(!discovery)resetDiscovery();
+    if(discovery.loading)return;
+    discovery.loading=true; $('load-more').disabled=true;
+    $('github-message').textContent='正在匿名读取公开 Releases 和 tags…';
+    const jobs=[];
+    if(!discovery.releasesDone) {
+        const url=discovery.releaseUrl||repoUrl('releases?per_page=30&page=1');
+        jobs.push(githubJson(url).then(({data,link})=>{
+            if(!Array.isArray(data))throw Error('GitHub Releases 响应格式无效。');
+            data.filter(r=>!r.draft).forEach(addRelease);
+            discovery.releaseUrl=nextPage(link,repoUrl('releases?per_page=30&page=1'));
+            discovery.releasesDone=!discovery.releaseUrl;
+        }));
+    }
+    if(!discovery.tagsDone) {
+        const url=discovery.tagUrl||repoUrl('tags?per_page=100&page=1');
+        jobs.push(githubJson(url).then(({data,link})=>{
+            if(!Array.isArray(data))throw Error('GitHub tags 响应格式无效。');
+            data.forEach(addTag);
+            discovery.tagUrl=nextPage(link,repoUrl('tags?per_page=100&page=1'));
+            discovery.tagsDone=!discovery.tagUrl;
+        }));
+    }
+    const results=await Promise.allSettled(jobs),failed=results.find(r=>r.status==='rejected');
+    discovery.loading=false; $('load-more').disabled=false;
+    $('github-message').textContent=failed?failed.reason.message:'候选来自设备编译时仓库的公开 GitHub API；浏览器未下载或验证 manifest 内容。';
+    $('load-more').hidden=discovery.releasesDone&&discovery.tagsDone;renderDiscovery();
+}
+async function installGithub(item){
+    if(!item.id||!current||pending||installing||uploading||activeStates.has(current.state))return;const reason=reasonFor(item);if(reason){showResult(`无法安装：${reason}`);return;}
+    installing=true;const transaction={source:'github',releaseId:item.id,oldBoot:current.boot_id,oldSha:current.current_elf_sha256,targetSha:'',started:Date.now(),waitSince:0,observed:false};pending=transaction;savePending();updateControls();showResult(`正在请求设备安装 ${item.ref}（${item.version}）。`);
+    try{const response=await fetch('/api/ota/github',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release_id:item.id})});let body=null;try{body=await response.json();}catch(_){}
+        if(pending!==transaction)return;
+        if(response.status===202){installing=false;waitForResult();showResult('设备已接受 GitHub 固件事务，正在下载并核对结果。');}
+        else if((response.status>=400&&response.status<500)||response.status===503){pending=null;installing=false;savePending();showResult(body?`${body.message||'安装被拒绝'}${body.error?'：'+body.error:''}`:`安装被拒绝：HTTP ${response.status}`);}
+        else{installing=false;waitForResult();showResult('安装响应无法确认，继续查询设备事务状态。');}
+    }catch(_){installing=false;waitForResult();showResult('安装请求连接中断，继续查询设备事务状态。');}finally{updateControls();poll();}
+}
+$('file').addEventListener('change',updateControls);$('upload').addEventListener('click',upload);$('query').addEventListener('click',poll);$('load-more').addEventListener('click',loadDiscovery);
+if(pending){waitForResult();showResult('已恢复上次升级的身份信息，正在核对实际运行结果。');}else showResult('连接成功并完成本地启动确认后，可选择应用镜像。');
+poll();setInterval(poll,1000);
 </script>
 </body>
 </html>
