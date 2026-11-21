@@ -54,3 +54,19 @@ menu "BYAI hardware tests"
             and then stops. Disable and flash normal firmware to resume sampling.
 
 endmenu
+
+menu "BYAI Wi-Fi configuration"
+
+    config BYAI_WIFI_SSID
+        string "Initial Wi-Fi SSID"
+        default ""
+        help
+            Optional profile to add or update in the Wi-Fi profile store at startup.
+
+    config BYAI_WIFI_PASSWORD
+        string "Initial Wi-Fi password"
+        default ""
+        help
+            Password for the initial Wi-Fi profile. Leave empty for an open network.
+
+endmenu

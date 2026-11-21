@@ -27,6 +27,39 @@ CI 使用仓库 checkout 和公开依赖，生成保留当前硬件调试配置�
 流程在产物上传和缓存保存后结束。实板验收按板卡、配置和实际现象记录到 PR 评论。
 手动运行入口需 workflow 已进入默认分支；构建和下载权限由仓库 Actions 策略控制。
 
+## 本地 OTA 布局与首次迁移
+
+应用使用 8 MB Flash 配置、`0x8000` 分区表偏移和双应用槽：
+
+|分区|偏移|大小|
+|---|---|---|
+|nvs|0x9000|0x6000|
+|phy_init|0xf000|0x1000|
+|otadata|0x10000|0x2000|
+|ota_0|0x20000|0x300000|
+|ota_1|0x320000|0x300000|
+
+启用 bootloader 首启回退；应用镜像上限为 3 MiB。未传入 `PROJECT_VER` 时，
+本地版本为 `local-<sha12>`，无 Git 信息时为 `local`。可通过
+`idf.py -DPROJECT_VER=ota-check-a build` 指定验收版本。
+
+旧 factory 布局首次安装须经授权执行串口迁移。先按仓库开发环境说明激活 ESP-IDF，
+在 `firmware/` 下使用同一 SDK 的 Python：
+
+```sh
+"$IDF_PYTHON" scripts/migrate_ota.py --port "$PORT" --backup-dir "$BACKUP_DIR" --build-dir build
+```
+
+`PORT` 为已核对的 ESP32-S3 串口，`BACKUP_DIR` 为仓库外的新备份目录。
+工具要求旧表仍为 nvs/phy_init/factory 的已知布局，核对芯片、Flash、PSRAM、构建配置、
+新表和每份镜像的扇区擦写范围；条件不符即退出。先保存旧 `[0,0x1d0000)` 完整区域、
+分区表、NVS、PHY 和摘要，再按构建生成的分散镜像参数写入。
+备份可能包含设备凭据，应仅保存在本机私有目录；工具不覆盖已有备份。
+写入后在 ROM 下载模式比对 NVS/PHY 原始字节，全部一致才报告通过；按 EN 后启动，
+再运行 `"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -p "$PORT" monitor`。
+使用 USB 供电且不接电池。不要用连续合并镜像进行保留 NVS 的迁移。
+网页应用 OTA 仅更新备用应用槽与 otadata，不能迁移旧分区表或更新 bootloader。
+
 ## 当前运行入口
 
 `main/top_main.c` 根据工程的 [`sdkconfig`](sdkconfig) 启动任务：
@@ -34,18 +67,90 @@ CI 使用仓库 checkout 和公开依赖，生成保留当前硬件调试配置�
 - 当前关闭彩条测试，运行 LVGL 圆弧、电源状态动画及 VBUS/SYS 电压条；开启彩条后改为屏幕/PSRAM 测试，两条显示路径互斥。
 - 当前开启基础电源测试、调试关闭 BQ I²C 看门狗及 VBUS/SYS ADC，关闭软件故障注入；电源任务与显示任务独立运行。
 - PSRAM 已启用启动初始化和内存测试，LVGL 动态内存使用 PSRAM；彩条路径中的循环 PSRAM 检查不在当前 LVGL 路径运行。
-- Wi-Fi 服务入口、音频、触控及产品自检页面为后续接入项。
+- 应用启动唯一 Wi-Fi service，复用持久化 profile、内建选网和重连；音频、触控及产品自检页面仍待接入。
 
-## Wi-Fi 例程能力（当前未接入）
+## Wi-Fi 生命周期
 
-工程保留了上游 Wi-Fi 例程的组件依赖与配置，后续接入服务入口时可复用以下能力：
+`app/network.c` 是唯一 Wi-Fi 实现，负责启动 `esp_wifi_service`、profile manager 和网络事件回调。
+配置菜单 `BYAI Wi-Fi configuration` 提供 `CONFIG_BYAI_WIFI_SSID` 与
+`CONFIG_BYAI_WIFI_PASSWORD`。tracked `sdkconfig` 的默认值为空：SSID 为空时复用现有 profile；
+SSID 非空时只添加或更新该 SSID，保留其他 profile 和现有 priority。profile manager 使用
+`byai_wifi` namespace 的 `prof_p`/`prof_b` 保存最多八份 profile，NVS 初始化错误直接返回，
+不会自动擦除。GOT_IP 发布网络就绪，断开或丢失 IP 时撤销就绪状态；没有配置且没有已存 profile
+时记录 `Wi-Fi unconfigured` 并保持离线。
 
-- 没有可用的 Wi-Fi 配置文件时，通过设备 SoftAP 启动 HTTP 网页配网；配网页面入口为设备热点上的 HTTP 服务。
-- 在 NVS 中保存和管理 Wi-Fi 配置文件，并由 Wi-Fi service 选择网络、处理连接状态和相关事件。
-- 通过 `wifi>` 串口交互入口管理配置文件、请求连接、启动或停止配网、重新评估网络，并可重启设备。
-- 可按工程配置启用 BluFi 配网和 Wi-Fi MCP 工具；MCP 的 UART 传输也取决于相应配置。
+本机凭据放在忽略的 `sdkconfig.local`，不要写入 tracked `sdkconfig`。在已激活的 `firmware/`
+目录中，仅当文件不存在时复制默认配置，再通过独立构建目录设置并构建：
 
-当前应用源文件由 `main/CMakeLists.txt` 显式列出，Wi-Fi 服务入口待接入。例程源码的许可文本见 [LICENSE](./LICENSE)。
+```sh
+if [ ! -f sdkconfig.local ]; then cp sdkconfig sdkconfig.local; fi
+"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -B build-local-wifi -D SDKCONFIG=sdkconfig.local menuconfig
+"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -B build-local-wifi -D SDKCONFIG=sdkconfig.local -DPROJECT_VER=local-wifi build
+```
+
+Kconfig 字符串会编入固件镜像；profile manager 也会将凭据保存到 Flash 中的 NVS。
+当前 profile storage 使用 `crypto=NULL`，不承诺镜像或 NVS 内容加密。代码不读取旧的本地
+`wifi.local.h`；该文件保持原状且被 Git 忽略。唯一调用方在 `top_main.c` 声明网络启动原型；
+旧 Wi-Fi 测试入口不参与构建。
+
+## 局域网网页 OTA
+
+从串口日志取得设备 IP 后，打开 `http://设备IP/ota`。页面内嵌于应用镜像，
+无需 CDN；选择带附加 SHA-256 的 BYAI ESP32-S3 应用 `.bin`，不要选择合并镜像。
+允许主动安装旧版或同版本。页面分别显示浏览器传输进度与设备接收/写入进度；
+传输完成后仍须等待 SDK 校验、重启及首启确认。
+网页源文件位于 `main/web/`。正常 LVGL 界面会在上传时覆盖显示设备接收进度，
+随后显示校验、等待重启或失败状态；失败保持显示直到下一次上传，空闲时显示电源界面。
+进度达到 100% 和显示 `Rebooting...` 均不表示新固件已完成首启确认；最终结果以网页为准。
+彩条测试模式不运行 LVGL 界面，因此不显示 OTA 面板。
+
+|接口|行为|
+|---|---|
+|`GET /ota`|本地升级页面|
+|`GET /api/ota/status`|本次启动标识、版本和 ELF 摘要、运行/备用分区、容量、确认状态、进度及错误|
+|`POST /api/ota/upload`|`application/octet-stream` 原始应用镜像，必须有 Content-Length；异步接收，状态查询使用另一连接|
+
+启动未确认或缺少可用双槽时拒绝写入。接收、校验和等待重启期间的第二份上传返回
+409；非法类型/长度返回 400，超过槽容量返回 413，镜像校验失败返回 422，
+接收/写入失败返回 500。接收连续 30 秒无进展则终止；未成功完成校验不选择新启动槽。
+失败请求结束后可以重新上传。成功提交启动槽后，由同一 worker 延时两秒重启。
+
+页面在会话存储中保存目标版本、目标 ELF 摘要与旧启动标识。响应丢失后继续查询；
+只有启动标识改变、首启确认成功且运行摘要匹配目标才报告成功。
+恢复旧摘要时显示“升级未生效/已回退”和实际版本；60 秒未确认则显示“结果待确认”，
+保留查询，不把断网、传输 100% 或 HTTP 200 当作升级成功。
+
+首启确认检查 NVS/网络栈、OTA worker 和全部 HTTP 路由的本地初始化结果。
+不等待路由器、互联网、显示或音频外设；这些检查不代表应用业务逻辑已通过验证。
+待确认应用初始化失败时请求 SDK 回退；无法回退或无法确认时不接受新 OTA。
+OTA 不保存 NVS 升级历史，不更新分区表、bootloader、eFuse 或安全启动配置。
+
+构建验收样本时，在已激活的 `firmware/` 目录分别生成明确版本；B 使用独立目录：
+
+```sh
+"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -DPROJECT_VER=ota-check-a build
+"$IDF_PYTHON" "$IDF_PATH/tools/idf.py" -B build/ota-check-b -DPROJECT_VER=ota-check-b build
+```
+
+以生成的应用描述、分区二进制和 `flasher_args.json` 核验版本、芯片、附加 SHA、
+槽容量及 NVS/PHY 擦写范围；不能只凭文件名认定版本或使用未重新配置的 A 镜像。
+
+### 验收边界
+
+主机替身仅验证事务控制与失败收尾；浏览器本机状态样本仅验证页面交互。
+NO0001（ESP32-S3、ESP-IDF v6.1）已完成双槽迁移、NVS/PHY 原始字节比对、A→B→A、
+同镜像重装、NVS sentinel 保留及错误文件校验。107 次并发状态查询均成功，最大耗时约
+0.70 秒；空/短文件返回 400，合并镜像、错误芯片/项目和缺少附加 SHA 的镜像返回 422，
+均未进入备用槽写入。关闭连接前先发送 FIN，存在未读请求体时保留已排队的 HTTP 响应。
+
+2026-11-15 完成剩余硬件场景：16 字节分块前缀上传从 `ota-check-c`/`ota_1` 切换到
+`ota-check-a`/`ota_0`；合法头部后停止发送，30 秒无进展以 `ESP_ERR_TIMEOUT` 进入
+`failed`，仅接收 288/1,469,520 字节，原启动 ID 与镜像不变，随后完整重传 `ota-check-c`
+成功；丢弃上传响应后通过新 `boot_id`、运行摘要和 `boot_confirmed` 确认实际结果；
+首启初始化失败的 `ota-check-bad` 自动回退到 `ota-check-a`/`ota_0`。验收结束时设备
+运行已确认的 `ota-check-a`，状态为 `idle`、`network_ready=true`、回滚已启用。
+
+A 阶段本地 OTA 硬件矩阵已完成。GitHub 发现、下载与发布属于后续 B 阶段，不包含在本次实现中。
 
 ## 屏幕彩条测试
 

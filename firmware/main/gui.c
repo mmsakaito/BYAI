@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include "lvgl.h"
+#include "ota.h"
 #include "power_state.h"
 
 /* VBUS 显示范围按 USB 供电链路估算为 3.9～5.5 V；SYS 上限取 ADC 的 2304 + 127×20 mV。 */
@@ -41,6 +42,12 @@ static struct {
     const char *validity_text;
     voltage_widget_t vbus;
     voltage_widget_t sys;
+    lv_obj_t *ota_panel;
+    lv_obj_t *ota_status;
+    lv_obj_t *ota_bar;
+    char ota_text[32];
+    byai_ota_display_status_t ota_last;
+    bool ota_visible;
     power_state_id_t last_state;
     bool initialized;
 } panel;
@@ -148,6 +155,46 @@ static void update_voltage(voltage_widget_t *widget, uint16_t millivolts, bool v
     widget->initialized = true;
 }
 
+/** @brief 在 LVGL 任务显示 OTA 设备接收进度；100% 后仍须校验和重启。 */
+static void update_ota_panel(void)
+{
+    byai_ota_display_status_t status;
+    bool visible = byai_ota_get_display_status(&status) && status.state != BYAI_OTA_IDLE;
+    if (!visible) {
+        if (panel.ota_visible) {
+            lv_obj_set_hidden(panel.ota_panel, true);
+            panel.ota_visible = false;
+        }
+        return;
+    }
+    if (panel.ota_visible && panel.ota_last.state == status.state &&
+        panel.ota_last.percent == status.percent) {
+        return;
+    }
+    switch (status.state) {
+    case BYAI_OTA_RECEIVING:
+        snprintf(panel.ota_text, sizeof(panel.ota_text), "Receiving %u%%", status.percent);
+        break;
+    case BYAI_OTA_VERIFYING:
+        snprintf(panel.ota_text, sizeof(panel.ota_text), "Verifying...");
+        break;
+    case BYAI_OTA_REBOOTING:
+        snprintf(panel.ota_text, sizeof(panel.ota_text), "Rebooting...");
+        break;
+    case BYAI_OTA_FAILED:
+    default:
+        snprintf(panel.ota_text, sizeof(panel.ota_text), "Update failed");
+        break;
+    }
+    lv_label_set_text_static(panel.ota_status, panel.ota_text);
+    lv_bar_set_value(panel.ota_bar, status.percent, LV_ANIM_OFF);
+    if (!panel.ota_visible) {
+        lv_obj_set_hidden(panel.ota_panel, false);
+        panel.ota_visible = true;
+    }
+    panel.ota_last = status;
+}
+
 /**
  * @brief 读取一致性快照并刷新界面；Q4 展示旧值，Q5 清空电压条。
  * @param timer 常驻 LVGL 定时器，回调使用模块静态控件。
@@ -183,6 +230,7 @@ static void update_power_panel(lv_timer_t *timer)
     }
     update_voltage(&panel.vbus, snapshot.data.vbus_mv, visible, stale);
     update_voltage(&panel.sys, snapshot.data.sys_mv, visible, stale);
+    update_ota_panel();
 }
 
 /**
@@ -234,6 +282,20 @@ void gui_create_power_panel(void)
     /* 320×240 布局：顶部状态行，下面两行分别放置名称、数值、条形与量程。 */
     create_voltage_widget(&panel.vbus, "VBUS", "3.9 - 5.5 V", 96, VBUS_MIN_MV, VBUS_MAX_MV, 0x2563eb);
     create_voltage_widget(&panel.sys, "SYS", "0 - 4.844 V", 166, 0, SYS_MAX_MV, 0x16a34a);
+    /* OTA 覆盖电源面板；状态恢复空闲时保留并重新显示底层控件。 */
+    panel.ota_panel = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(panel.ota_panel, 272, 104);
+    lv_obj_center(panel.ota_panel);
+    lv_obj_set_scrollable(panel.ota_panel, false);
+    lv_obj_set_style_bg_color(panel.ota_panel, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_bg_opa(panel.ota_panel, LV_OPA_COVER, 0);
+    panel.ota_status = lv_label_create(panel.ota_panel);
+    lv_obj_align(panel.ota_status, LV_ALIGN_TOP_MID, 0, 6);
+    panel.ota_bar = lv_bar_create(panel.ota_panel);
+    lv_obj_set_size(panel.ota_bar, 220, 12);
+    lv_obj_align(panel.ota_bar, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_bar_set_range(panel.ota_bar, 0, 100);
+    lv_obj_set_hidden(panel.ota_panel, true);
     lv_timer_t *timer = lv_timer_create(update_power_panel, 500, NULL);
     update_power_panel(timer);
 }
